@@ -1,0 +1,11 @@
+{
+	"compilerOptions": {
+		"allowJs": true,
+		"declaration": true,
+		"emitDeclarationOnly": true,
+		"strict": true,
+		"esModuleInterop": true,
+		"moduleResolution": "node"
+	},
+	"include": ["lib/**/*.js", "lib/**/*.d.ts"]
+}
