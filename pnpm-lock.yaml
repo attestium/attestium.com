@@ -33,6 +33,9 @@ importers:
       lint-staged:
         specifier: ^16.1.2
         version: 16.3.2
+      marked:
+        specifier: ^17.0.0
+        version: 17.0.3
       prettier:
         specifier: ^3.0.0
         version: 3.8.1
@@ -1901,6 +1904,11 @@ packages:
 
   markdown-table@2.0.0:
     resolution: {integrity: sha512-Ezda85ToJUBhM6WGaG6veasyym+Tbs3cMAw/ZhOPqXiYsr0jgocBV3j3nx+4lk47plLlIqjwuTm/ywVI+zjJ/A==}
+
+  marked@17.0.3:
+    resolution: {integrity: sha512-jt1v2ObpyOKR8p4XaUJVk3YWRJ5n+i4+rjQopxvV32rSndTJXvIzuUdWWIy/1pFQMkQmvTXawzDNqOH/CUmx6A==}
+    engines: {node: '>= 20'}
+    hasBin: true
 
   match-casing@1.0.3:
     resolution: {integrity: sha512-oMyC3vUVCFbGu+M2Zxl212LPJThcaw7QxB5lFuJPQCgV/dsGBP0yZeCoLmX6CiBkoBcVbAKDJZrBpJVu0XcLMw==}
@@ -5257,6 +5265,8 @@ snapshots:
   markdown-table@2.0.0:
     dependencies:
       repeat-string: 1.6.1
+
+  marked@17.0.3: {}
 
   match-casing@1.0.3: {}
 
