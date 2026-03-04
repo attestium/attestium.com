@@ -74,15 +74,15 @@
   "scripts": {
     "build": "pnpm run build:clean && node build.mjs",
     "build:clean": "rimraf lib",
-    "c8": "c8 --reporter=text --reporter=html node --test test/*.js",
-    "coverage": "c8 --reporter=text --reporter=html --reporter=json-summary node --test test/*.js",
+    "c8": "c8 --reporter=text --reporter=html node --test",
+    "coverage": "c8 --reporter=text --reporter=html --reporter=json-summary node --test",
     "lint": "fixpack && remark . -qfo && xo --fix",
     "pre-commit": "lint-staged",
     "prepare": "husky",
     "prepublishOnly": "pnpm run build",
     "pretest": "pnpm run lint",
-    "test": "node --test test/*.js",
-    "test-coverage": "c8 --reporter=text --reporter=html --reporter=json-summary node --test test/*.js"
+    "test": "node --test",
+    "test-coverage": "c8 --reporter=text --reporter=html --reporter=json-summary node --test"
   },
   "types": "lib/index.d.ts",
   "xo": {
