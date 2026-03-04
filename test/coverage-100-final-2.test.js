@@ -434,7 +434,7 @@ test('ExternalValidationManager coverage', async t => {
 	await t.test('verifyNPMPackageIntegrity version mismatch', async () => {
 		// Lines 189-191: version mismatch
 		const ev = new ExternalValidationManager();
-		ev.makeHTTPSRequest = async () => JSON.stringify({version: '0.0.0'});
+		ev.makeHTTPSRequest = async () => JSON.stringify({version: '99.99.99'});
 		const result = await ev.verifyNPMPackageIntegrity();
 		assert.strictEqual(result, false);
 	});
