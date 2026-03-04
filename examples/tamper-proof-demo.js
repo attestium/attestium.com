@@ -20,14 +20,14 @@ console.log(`   ✅ Boot signature: ${TamperProofCore.bootSignature.slice(0, 16)
 console.log('\n2. Protecting critical variables...');
 
 const criticalConfig = {
-	apiKey: 'secret-api-key-12345',
-	adminPassword: 'super-secret-password',
-	encryptionKey: crypto.randomBytes(32).toString('hex'),
+  apiKey: 'secret-api-key-12345',
+  adminPassword: 'super-secret-password',
+  encryptionKey: crypto.randomBytes(32).toString('hex'),
 };
 
 const protectionId = TamperProofCore.protectVariable('criticalConfig', criticalConfig, {
-	freeze: true,
-	immutable: true,
+  freeze: true,
+  immutable: true,
 });
 
 console.log(`   ✅ Protected variable with ID: ${protectionId}`);
@@ -38,7 +38,7 @@ console.log('\n3. Verifying variable protection...');
 const verification = TamperProofCore.verifyProtectedVariable('criticalConfig', criticalConfig);
 console.log(`   ✅ Verification result: ${verification.valid ? 'VALID' : 'INVALID'}`);
 if (verification.valid) {
-	console.log(`   ✅ Protection ID: ${verification.protectionId}`);
+  console.log(`   ✅ Protection ID: ${verification.protectionId}`);
 }
 
 // Step 4: Test Object.freeze integrity
@@ -51,7 +51,7 @@ console.log('\n5. Checking for scheduled tampering...');
 const tamperingCheck = TamperProofCore.detectScheduledTampering();
 console.log(`   ✅ Scheduled tampering check: ${tamperingCheck.valid ? 'CLEAN' : 'SUSPICIOUS'}`);
 if (!tamperingCheck.valid) {
-	console.log(`   ⚠️  Suspicious activities: ${tamperingCheck.suspiciousActivities.join(', ')}`);
+  console.log(`   ⚠️  Suspicious activities: ${tamperingCheck.suspiciousActivities.join(', ')}`);
 }
 
 // Step 6: Comprehensive tamper check
@@ -77,10 +77,10 @@ console.log('\n9. Demonstrating tampering detection...');
 
 // Try to modify the protected variable (this should fail)
 try {
-	criticalConfig.apiKey = 'hacked-key';
-	console.log(`   ⚠️  Modification attempt: ${criticalConfig.apiKey === 'hacked-key' ? 'SUCCEEDED' : 'BLOCKED'}`);
+  criticalConfig.apiKey = 'hacked-key';
+  console.log(`   ⚠️  Modification attempt: ${criticalConfig.apiKey === 'hacked-key' ? 'SUCCEEDED' : 'BLOCKED'}`);
 } catch (error) {
-	console.log(`   ✅ Modification blocked: ${error.message}`);
+  console.log(`   ✅ Modification blocked: ${error.message}`);
 }
 
 // Verify the variable is still intact
@@ -92,25 +92,25 @@ console.log('\n10. Simulating setTimeout attack...');
 
 // This is the type of attack we're protecting against
 setTimeout(() => {
-	console.log('\n   🚨 setTimeout attack executing...');
+  console.log('\n   🚨 setTimeout attack executing...');
 
-	try {
-		// Try to modify the protected variable
-		criticalConfig.apiKey = 'delayed-hack';
-		console.log(`   ⚠️  Delayed modification: ${criticalConfig.apiKey === 'delayed-hack' ? 'SUCCEEDED' : 'BLOCKED'}`);
-	} catch (error) {
-		console.log(`   ✅ Delayed modification blocked: ${error.message}`);
-	}
+  try {
+    // Try to modify the protected variable
+    criticalConfig.apiKey = 'delayed-hack';
+    console.log(`   ⚠️  Delayed modification: ${criticalConfig.apiKey === 'delayed-hack' ? 'SUCCEEDED' : 'BLOCKED'}`);
+  } catch (error) {
+    console.log(`   ✅ Delayed modification blocked: ${error.message}`);
+  }
 
-	// Verify protection is still intact
-	const delayedVerification = TamperProofCore.verifyProtectedVariable('criticalConfig', criticalConfig);
-	console.log(`   ✅ Delayed verification: ${delayedVerification.valid ? 'STILL PROTECTED' : 'COMPROMISED'}`);
+  // Verify protection is still intact
+  const delayedVerification = TamperProofCore.verifyProtectedVariable('criticalConfig', criticalConfig);
+  console.log(`   ✅ Delayed verification: ${delayedVerification.valid ? 'STILL PROTECTED' : 'COMPROMISED'}`);
 
-	// Generate new challenge to prove system is still secure
-	const postAttackChallenge = TamperProofCore.createVerificationChallenge();
-	console.log(`   ✅ Post-attack challenge: ${postAttackChallenge.tamperCheck.valid ? 'SYSTEM SECURE' : 'SYSTEM COMPROMISED'}`);
+  // Generate new challenge to prove system is still secure
+  const postAttackChallenge = TamperProofCore.createVerificationChallenge();
+  console.log(`   ✅ Post-attack challenge: ${postAttackChallenge.tamperCheck.valid ? 'SYSTEM SECURE' : 'SYSTEM COMPROMISED'}`);
 
-	console.log('\n🎉 Demo complete! The system successfully protected against tampering attempts.');
+  console.log('\n🎉 Demo complete! The system successfully protected against tampering attempts.');
 }, 1000);
 
 console.log('\n⏱️  Waiting for setTimeout attack simulation...');
@@ -119,27 +119,27 @@ console.log('\n⏱️  Waiting for setTimeout attack simulation...');
 console.log('\n11. Server endpoint simulation...');
 
 function simulateServerEndpoint(clientNonce) {
-	console.log(`\n📡 Server received verification request with nonce: ${clientNonce.slice(0, 16)}...`);
+  console.log(`\n📡 Server received verification request with nonce: ${clientNonce.slice(0, 16)}...`);
 
-	// Generate server challenge
-	const serverChallenge = TamperProofCore.createVerificationChallenge();
+  // Generate server challenge
+  const serverChallenge = TamperProofCore.createVerificationChallenge();
 
-	// Verify client nonce matches
-	const verification = TamperProofCore.verifyChallenge(serverChallenge, clientNonce);
+  // Verify client nonce matches
+  const verification = TamperProofCore.verifyChallenge(serverChallenge, clientNonce);
 
-	const response = {
-		success: verification.valid,
-		timestamp: Date.now(),
-		bootTime: TamperProofCore.bootTime,
-		bootSignature: TamperProofCore.bootSignature,
-		tamperCheck: serverChallenge.tamperCheck,
-		proof: serverChallenge.tamperProof,
-	};
+  const response = {
+    success: verification.valid,
+    timestamp: Date.now(),
+    bootTime: TamperProofCore.bootTime,
+    bootSignature: TamperProofCore.bootSignature,
+    tamperCheck: serverChallenge.tamperCheck,
+    proof: serverChallenge.tamperProof,
+  };
 
-	console.log(`📤 Server response: ${response.success ? 'VERIFIED' : 'FAILED'}`);
-	console.log(`📊 Tamper check: ${response.tamperCheck.valid ? 'CLEAN' : 'COMPROMISED'}`);
+  console.log(`📤 Server response: ${response.success ? 'VERIFIED' : 'FAILED'}`);
+  console.log(`📊 Tamper check: ${response.tamperCheck.valid ? 'CLEAN' : 'COMPROMISED'}`);
 
-	return response;
+  return response;
 }
 
 // Simulate client request
@@ -151,9 +151,9 @@ console.log(`🔐 System integrity: ${serverResponse.success && serverResponse.t
 
 // Export for testing
 module.exports = {
-	TamperProofCore,
-	criticalConfig,
-	protectionId,
-	simulateServerEndpoint,
+  TamperProofCore,
+  criticalConfig,
+  protectionId,
+  simulateServerEndpoint,
 };
 

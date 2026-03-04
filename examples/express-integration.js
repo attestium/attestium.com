@@ -8,8 +8,8 @@ const port = process.env.PORT || 3000;
 
 // Initialize Attestium
 const attestium = new Attestium({
-	projectRoot: process.cwd(),
-	enableRuntimeHooks: true,
+  projectRoot: process.cwd(),
+  enableRuntimeHooks: true,
 });
 
 // Middleware
@@ -25,7 +25,7 @@ const NONCE_EXPIRY = 5 * 60 * 1000; // 5 minutes
  * @returns {string} Base64 encoded nonce
  */
 function generateNonce() {
-	return crypto.randomBytes(32).toString('base64');
+  return crypto.randomBytes(32).toString('base64');
 }
 
 /**
@@ -34,16 +34,16 @@ function generateNonce() {
  * @param {Object} metadata - Additional metadata
  */
 function storeNonce(nonce, metadata = {}) {
-	nonceStore.set(nonce, {
-		...metadata,
-		timestamp: Date.now(),
-		used: false,
-	});
+  nonceStore.set(nonce, {
+    ...metadata,
+    timestamp: Date.now(),
+    used: false,
+  });
 
-	// Clean up expired nonces
-	setTimeout(() => {
-		nonceStore.delete(nonce);
-	}, NONCE_EXPIRY);
+  // Clean up expired nonces
+  setTimeout(() => {
+    nonceStore.delete(nonce);
+  }, NONCE_EXPIRY);
 }
 
 /**
@@ -52,219 +52,219 @@ function storeNonce(nonce, metadata = {}) {
  * @returns {boolean} True if nonce is valid and unused
  */
 function validateNonce(nonce) {
-	const stored = nonceStore.get(nonce);
+  const stored = nonceStore.get(nonce);
 
-	if (!stored) {
-		return false; // Nonce not found
-	}
+  if (!stored) {
+    return false; // Nonce not found
+  }
 
-	if (stored.used) {
-		return false; // Nonce already used
-	}
+  if (stored.used) {
+    return false; // Nonce already used
+  }
 
-	if (Date.now() - stored.timestamp > NONCE_EXPIRY) {
-		nonceStore.delete(nonce);
-		return false; // Nonce expired
-	}
+  if (Date.now() - stored.timestamp > NONCE_EXPIRY) {
+    nonceStore.delete(nonce);
+    return false; // Nonce expired
+  }
 
-	// Mark as used
-	stored.used = true;
-	return true;
+  // Mark as used
+  stored.used = true;
+  return true;
 }
 
 /**
  * Generate verification challenge for client
  */
 app.get('/api/verification/challenge', async (request, res) => {
-	try {
-		const nonce = generateNonce();
-		const timestamp = new Date().toISOString();
+  try {
+    const nonce = generateNonce();
+    const timestamp = new Date().toISOString();
 
-		// Generate current verification report
-		const report = await attestium.generateVerificationReport();
+    // Generate current verification report
+    const report = await attestium.generateVerificationReport();
 
-		// Create challenge data
-		const challengeData = {
-			nonce,
-			timestamp,
-			serverChecksum: crypto.createHash('sha256')
-				.update(JSON.stringify(report.summary))
-				.digest('hex'),
-			totalFiles: report.summary.totalFiles,
-			verifiedFiles: report.summary.verifiedFiles,
-		};
+    // Create challenge data
+    const challengeData = {
+      nonce,
+      timestamp,
+      serverChecksum: crypto.createHash('sha256')
+        .update(JSON.stringify(report.summary))
+        .digest('hex'),
+      totalFiles: report.summary.totalFiles,
+      verifiedFiles: report.summary.verifiedFiles,
+    };
 
-		// Store nonce with challenge metadata
-		storeNonce(nonce, {
-			challengeData,
-			serverReport: report,
-		});
+    // Store nonce with challenge metadata
+    storeNonce(nonce, {
+      challengeData,
+      serverReport: report,
+    });
 
-		res.json({
-			success: true,
-			challenge: challengeData,
-			message: 'Verification challenge generated',
-		});
-	} catch (error) {
-		console.error('Error generating challenge:', error);
-		res.status(500).json({
-			success: false,
-			error: 'Failed to generate verification challenge',
-		});
-	}
+    res.json({
+      success: true,
+      challenge: challengeData,
+      message: 'Verification challenge generated',
+    });
+  } catch (error) {
+    console.error('Error generating challenge:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate verification challenge',
+    });
+  }
 });
 
 /**
  * Verify client response to challenge
  */
 app.post('/api/verification/verify', async (request, res) => {
-	try {
-		const {nonce, clientSignature, expectedChecksum} = request.body;
+  try {
+    const {nonce, clientSignature, expectedChecksum} = request.body;
 
-		if (!nonce || !clientSignature || !expectedChecksum) {
-			return res.status(400).json({
-				success: false,
-				error: 'Missing required fields: nonce, clientSignature, expectedChecksum',
-			});
-		}
+    if (!nonce || !clientSignature || !expectedChecksum) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: nonce, clientSignature, expectedChecksum',
+      });
+    }
 
-		// Validate nonce
-		if (!validateNonce(nonce)) {
-			return res.status(401).json({
-				success: false,
-				error: 'Invalid or expired nonce',
-			});
-		}
+    // Validate nonce
+    if (!validateNonce(nonce)) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid or expired nonce',
+      });
+    }
 
-		// Get stored challenge data
-		const stored = nonceStore.get(nonce);
-		const {challengeData, serverReport} = stored;
+    // Get stored challenge data
+    const stored = nonceStore.get(nonce);
+    const {challengeData, serverReport} = stored;
 
-		// Verify client signature
-		const expectedSignature = crypto.createHash('sha256')
-			.update(nonce + challengeData.serverChecksum + expectedChecksum)
-			.digest('hex');
+    // Verify client signature
+    const expectedSignature = crypto.createHash('sha256')
+      .update(nonce + challengeData.serverChecksum + expectedChecksum)
+      .digest('hex');
 
-		if (clientSignature !== expectedSignature) {
-			return res.status(401).json({
-				success: false,
-				error: 'Invalid client signature',
-			});
-		}
+    if (clientSignature !== expectedSignature) {
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid client signature',
+      });
+    }
 
-		// Verify server state hasn't changed
-		const currentReport = await attestium.generateVerificationReport();
-		const currentChecksum = crypto.createHash('sha256')
-			.update(JSON.stringify(currentReport.summary))
-			.digest('hex');
+    // Verify server state hasn't changed
+    const currentReport = await attestium.generateVerificationReport();
+    const currentChecksum = crypto.createHash('sha256')
+      .update(JSON.stringify(currentReport.summary))
+      .digest('hex');
 
-		if (currentChecksum !== challengeData.serverChecksum) {
-			return res.status(409).json({
-				success: false,
-				error: 'Server state changed during verification',
-				details: {
-					originalChecksum: challengeData.serverChecksum,
-					currentChecksum,
-				},
-			});
-		}
+    if (currentChecksum !== challengeData.serverChecksum) {
+      return res.status(409).json({
+        success: false,
+        error: 'Server state changed during verification',
+        details: {
+          originalChecksum: challengeData.serverChecksum,
+          currentChecksum,
+        },
+      });
+    }
 
-		// Verification successful
-		res.json({
-			success: true,
-			verification: {
-				timestamp: new Date().toISOString(),
-				nonce,
-				serverChecksum: currentChecksum,
-				clientExpected: expectedChecksum,
-				match: currentChecksum === expectedChecksum,
-				report: {
-					totalFiles: currentReport.summary.totalFiles,
-					verifiedFiles: currentReport.summary.verifiedFiles,
-					categories: currentReport.summary.categories,
-				},
-			},
-			message: 'Verification completed successfully',
-		});
+    // Verification successful
+    res.json({
+      success: true,
+      verification: {
+        timestamp: new Date().toISOString(),
+        nonce,
+        serverChecksum: currentChecksum,
+        clientExpected: expectedChecksum,
+        match: currentChecksum === expectedChecksum,
+        report: {
+          totalFiles: currentReport.summary.totalFiles,
+          verifiedFiles: currentReport.summary.verifiedFiles,
+          categories: currentReport.summary.categories,
+        },
+      },
+      message: 'Verification completed successfully',
+    });
 
-		// Clean up used nonce
-		nonceStore.delete(nonce);
-	} catch (error) {
-		console.error('Error during verification:', error);
-		res.status(500).json({
-			success: false,
-			error: 'Verification failed due to server error',
-		});
-	}
+    // Clean up used nonce
+    nonceStore.delete(nonce);
+  } catch (error) {
+    console.error('Error during verification:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Verification failed due to server error',
+    });
+  }
 });
 
 /**
  * Get current server verification status
  */
 app.get('/api/verification/status', async (request, res) => {
-	try {
-		const report = await attestium.generateVerificationReport();
-		const runtimeStatus = attestium.getRuntimeVerificationStatus();
+  try {
+    const report = await attestium.generateVerificationReport();
+    const runtimeStatus = attestium.getRuntimeVerificationStatus();
 
-		res.json({
-			success: true,
-			status: {
-				timestamp: new Date().toISOString(),
-				projectRoot: attestium.projectRoot,
-				gitCommit: attestium.gitCommit,
-				deployTime: attestium.deployTime,
-				files: {
-					total: report.summary.totalFiles,
-					verified: report.summary.verifiedFiles,
-					failed: report.summary.failedFiles,
-					categories: report.summary.categories,
-				},
-				runtime: {
-					hooksEnabled: attestium.enableRuntimeHooks,
-					loadedModules: runtimeStatus.totalModules,
-				},
-				integrity: {
-					checksum: crypto.createHash('sha256')
-						.update(JSON.stringify(report.summary))
-						.digest('hex'),
-				},
-			},
-		});
-	} catch (error) {
-		console.error('Error getting status:', error);
-		res.status(500).json({
-			success: false,
-			error: 'Failed to get verification status',
-		});
-	}
+    res.json({
+      success: true,
+      status: {
+        timestamp: new Date().toISOString(),
+        projectRoot: attestium.projectRoot,
+        gitCommit: attestium.gitCommit,
+        deployTime: attestium.deployTime,
+        files: {
+          total: report.summary.totalFiles,
+          verified: report.summary.verifiedFiles,
+          failed: report.summary.failedFiles,
+          categories: report.summary.categories,
+        },
+        runtime: {
+          hooksEnabled: attestium.enableRuntimeHooks,
+          loadedModules: runtimeStatus.totalModules,
+        },
+        integrity: {
+          checksum: crypto.createHash('sha256')
+            .update(JSON.stringify(report.summary))
+            .digest('hex'),
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Error getting status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get verification status',
+    });
+  }
 });
 
 /**
  * Export verification data for external auditing
  */
 app.get('/api/verification/export', async (request, res) => {
-	try {
-		const exportData = await attestium.exportVerificationData();
+  try {
+    const exportData = await attestium.exportVerificationData();
 
-		res.json({
-			success: true,
-			export: exportData,
-			message: 'Verification data exported successfully',
-		});
-	} catch (error) {
-		console.error('Error exporting data:', error);
-		res.status(500).json({
-			success: false,
-			error: 'Failed to export verification data',
-		});
-	}
+    res.json({
+      success: true,
+      export: exportData,
+      message: 'Verification data exported successfully',
+    });
+  } catch (error) {
+    console.error('Error exporting data:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to export verification data',
+    });
+  }
 });
 
 /**
  * Serve client-side verification page
  */
 app.get('/', (request, res) => {
-	res.send(`
+  res.send(`
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -456,22 +456,22 @@ app.get('/', (request, res) => {
 
 // Error handling middleware
 app.use((error, request, res, next) => {
-	console.error('Express error:', error);
-	res.status(500).json({
-		success: false,
-		error: 'Internal server error',
-	});
+  console.error('Express error:', error);
+  res.status(500).json({
+    success: false,
+    error: 'Internal server error',
+  });
 });
 
 // Start server
 app.listen(port, () => {
-	console.log(`🧪 Attestium Express Demo running on http://localhost:${port}`);
-	console.log('📊 Visit the URL to see the interactive verification demo');
-	console.log('🔍 API endpoints:');
-	console.log('  GET  /api/verification/status    - Get current verification status');
-	console.log('  GET  /api/verification/challenge - Get verification challenge');
-	console.log('  POST /api/verification/verify    - Verify challenge response');
-	console.log('  GET  /api/verification/export    - Export verification data');
+  console.log(`🧪 Attestium Express Demo running on http://localhost:${port}`);
+  console.log('📊 Visit the URL to see the interactive verification demo');
+  console.log('🔍 API endpoints:');
+  console.log('  GET  /api/verification/status    - Get current verification status');
+  console.log('  GET  /api/verification/challenge - Get verification challenge');
+  console.log('  POST /api/verification/verify    - Verify challenge response');
+  console.log('  GET  /api/verification/export    - Export verification data');
 });
 
 module.exports = app;

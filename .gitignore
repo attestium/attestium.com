@@ -9,6 +9,7 @@
 .vscode
 _site
 coverage
+lib/package.json
 node_modules
 package-lock.json
 yarn.lock

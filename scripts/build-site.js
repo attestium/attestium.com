@@ -123,7 +123,7 @@ fs.writeFileSync(path.join(outDir, 'index.html'), html);
 // Copy CNAME
 const cname = path.join(root, 'CNAME');
 if (fs.existsSync(cname)) {
-	fs.copyFileSync(cname, path.join(outDir, 'CNAME'));
+  fs.copyFileSync(cname, path.join(outDir, 'CNAME'));
 }
 
 // Copy assets
@@ -131,13 +131,13 @@ const assetsDir = path.join(root, 'assets');
 const outAssets = path.join(outDir, 'assets');
 fs.mkdirSync(outAssets, {recursive: true});
 for (const file of fs.readdirSync(assetsDir)) {
-	fs.copyFileSync(path.join(assetsDir, file), path.join(outAssets, file));
+  fs.copyFileSync(path.join(assetsDir, file), path.join(outAssets, file));
 }
 
 // Copy whitepaper PDF
 const pdf = path.join(root, 'attestium-whitepaper.pdf');
 if (fs.existsSync(pdf)) {
-	fs.copyFileSync(pdf, path.join(outDir, 'attestium-whitepaper.pdf'));
+  fs.copyFileSync(pdf, path.join(outDir, 'attestium-whitepaper.pdf'));
 }
 
 console.log('Site built to _site/');
