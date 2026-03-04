@@ -1,7 +1,7 @@
 {
   "name": "attestium",
   "description": "Element of attestation - Runtime code verification and integrity monitoring library for Node.js applications",
-  "version": "1.0.0",
+  "version": "0.0.0",
   "author": "Forward Email Community",
   "bugs": {
     "url": "https://github.com/attestium/attestium.com/issues"
