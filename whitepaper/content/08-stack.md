@@ -40,17 +40,17 @@ graph LR
 
 ## Building on Existing Work
 
-**System Transparency (ST)**\[^st] pioneered verifiable infrastructure for VPN servers. We take their boot-time integrity model and apply it to the application runtime, extending the chain of trust to the code you actually run.
+**System Transparency (ST)**[^st] pioneered verifiable infrastructure for VPN servers. We take their boot-time integrity model and apply it to the application runtime, extending the chain of trust to the code you actually run.
 
-**Keylime**\[^keylime2] offers powerful TPM-based attestation for cloud infrastructure. We provide a more lightweight, application-centric alternative, making TPM-based attestation more accessible for Node.js developers.
+**Keylime**[^keylime2] offers powerful TPM-based attestation for cloud infrastructure. We provide a more lightweight, application-centric alternative, making TPM-based attestation more accessible for Node.js developers.
 
-**Sigstore**\[^sigstore2] and **SLSA**\[^slsa2] are essential for securing the software supply chain at build time. We complete the picture by providing the post-deployment verification they lack, creating an end-to-end chain of trust from developer to production.
+**Sigstore**[^sigstore2] and **SLSA**[^slsa2] are essential for securing the software supply chain at build time. We complete the picture by providing the post-deployment verification they lack, creating an end-to-end chain of trust from developer to production.
 
-**Reproducible Builds**\[^repro] ensure that a given set of source code always produces the same binary. This is a vital step, but as Lamb and Zacchiroli note, it is a necessary but not sufficient condition for a trustworthy supply chain\[^ieee\_repro2]. Attestium closes the loop by verifying that the code running in production matches a specific reproducible build.
+**Reproducible Builds**[^repro] ensure that a given set of source code always produces the same binary. This is a vital step, but as Lamb and Zacchiroli note, it is a necessary but not sufficient condition for a trustworthy supply chain[^ieee_repro2]. Attestium closes the loop by verifying that the code running in production matches a specific reproducible build.
 
-\[^st]: Mullvad VPN, "Introducing System Transparency for our VPN servers": https://mullvad.net/en/blog/diskless-infrastructure-beta-system-transparency-stboot
-\[^keylime2]: Keylime, "A CNCF project for TPM-based cloud attestation": https://keylime.dev/
-\[^sigstore2]: Sigstore, "A new standard for signing, verifying, and protecting software": https://www.sigstore.dev/
-\[^slsa2]: SLSA, "Supply-chain Levels for Software Artifacts": https://slsa.dev/
-\[^repro]: Reproducible Builds, "Increasing the integrity of software supply chains": https://reproducible-builds.org/
-\[^ieee\_repro2]: D. E. Lamb and S. Zacchiroli, "The Trustworthy Software Supply Chain," IEEE Software, 2021: https://ieeexplore.ieee.org/document/9423215
+[^st]: Mullvad VPN, "Introducing System Transparency for our VPN servers": https://mullvad.net/en/blog/diskless-infrastructure-beta-system-transparency-stboot
+[^keylime2]: Keylime, "A CNCF project for TPM-based cloud attestation": https://keylime.dev/
+[^sigstore2]: Sigstore, "A new standard for signing, verifying, and protecting software": https://www.sigstore.dev/
+[^slsa2]: SLSA, "Supply-chain Levels for Software Artifacts": https://slsa.dev/
+[^repro]: Reproducible Builds, "Increasing the integrity of software supply chains": https://reproducible-builds.org/
+[^ieee_repro2]: D. E. Lamb and S. Zacchiroli, "The Trustworthy Software Supply Chain," IEEE Software, 2021: https://ieeexplore.ieee.org/document/9423215

@@ -34,7 +34,7 @@ But this approach isn't limited to Upptime or even GitHub. The same pattern work
 
 ## The Verification Flow
 
-Our verification flow follows the IETF RATS architecture (RFC 9334)\[^rats]. Upptime acts as the Relying Party, initiating an attestation request. The ssh-audit helper acts as the Verifier, connecting to the remote server and executing Audit Status, the Attester. Audit Status collects evidence from the system (TPM, /proc, filesystem), generates a report, and sends it back up the chain.
+Our verification flow follows the IETF RATS architecture (RFC 9334)[^rats]. Upptime acts as the Relying Party, initiating an attestation request. The ssh-audit helper acts as the Verifier, connecting to the remote server and executing Audit Status, the Attester. Audit Status collects evidence from the system (TPM, /proc, filesystem), generates a report, and sends it back up the chain.
 
 ```{.mermaid format=pdf}
 graph LR
@@ -47,4 +47,4 @@ graph LR
 
 This architecture provides a clean separation of concerns and a secure, flexible flow for remote verification. In the following sections, we will explore each layer in greater detail.
 
-\[^rats]: H. Birkholz, et al., "Remote Attestation Procedures Architecture," IETF RFC 9334, 2022: https://datatracker.ietf.org/doc/rfc9334/
+[^rats]: H. Birkholz, et al., "Remote Attestation Procedures Architecture," IETF RFC 9334, 2022: https://datatracker.ietf.org/doc/rfc9334/

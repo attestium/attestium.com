@@ -4,7 +4,7 @@ The software supply chain is broken. We have focused intensely on securing softw
 
 ## Build-Time Security is Not Enough
 
-We have made great strides with initiatives like SLSA\[^slsa] and Sigstore\[^sigstore], creating a chain of trust from source code to binary. But that chain breaks at runtime. As Google's engineers noted, build-time enforcement alone cannot protect infrastructure from compromised code\[^google\_bab]. A runtime mechanism is not just a nice-to-have; it is a necessity.
+We have made great strides with initiatives like SLSA[^slsa] and Sigstore[^sigstore], creating a chain of trust from source code to binary. But that chain breaks at runtime. As Google's engineers noted, build-time enforcement alone cannot protect infrastructure from compromised code[^google_bab]. A runtime mechanism is not just a nice-to-have; it is a necessity.
 
 ## Where Existing Solutions Fall Short
 
@@ -26,6 +26,6 @@ Before developing Attestium, we conducted extensive research into existing verif
 
 We need a solution that is holistic, layered, and developer-first. This is why we built Attestium.
 
-\[^slsa]: SLSA, "Supply-chain Levels for Software Artifacts": https://slsa.dev/
-\[^sigstore]: Sigstore, "A new standard for signing, verifying, and protecting software": https://www.sigstore.dev/
-\[^google\_bab]: Google Cloud, "Binary Authorization for Borg": https://cloud.google.com/docs/security/binary-authorization-for-borg
+[^slsa]: SLSA, "Supply-chain Levels for Software Artifacts": https://slsa.dev/
+[^sigstore]: Sigstore, "A new standard for signing, verifying, and protecting software": https://www.sigstore.dev/
+[^google_bab]: Google Cloud, "Binary Authorization for Borg": https://cloud.google.com/docs/security/binary-authorization-for-borg
