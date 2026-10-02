@@ -1,0 +1,498 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://attestium.com/schema/evidence-v2.json",
+  "title": "Attestium evidence, version 2",
+  "description": "What an attester reports about a machine. Every field a verifier compares is constrained here; see SPEC.md for the meaning of each.",
+  "type": "object",
+  "required": ["type", "version", "nonce", "collectedAt", "attester", "host", "services", "executables", "libraries", "evidenceDigest"],
+  "additionalProperties": false,
+  "properties": {
+    "type": {"const": "attestium-evidence"},
+    "version": {"const": 2},
+    "nonce": {"$ref": "#/$defs/nonce"},
+    "collectedAt": {"$ref": "#/$defs/time"},
+    "attester": {
+      "type": "object",
+      "required": ["name", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string", "pattern": "^[\\w.-]{1,64}$"},
+        "version": {"type": "string", "maxLength": 64},
+        "platform": {"type": "string", "maxLength": 32},
+        "arch": {"type": "string", "maxLength": 32},
+        "node": {"type": "string", "maxLength": 32},
+        "executable": {
+          "type": "object",
+          "required": ["path"],
+          "additionalProperties": false,
+          "properties": {
+            "path": {"type": "string"},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "error": {"type": "string"}
+          }
+        }
+      }
+    },
+    "host": {
+      "type": "object",
+      "required": ["hostname", "kernel"],
+      "additionalProperties": false,
+      "properties": {
+        "hostname": {"type": "string", "maxLength": 255},
+        "kernel": {"type": "string", "maxLength": 255},
+        "bootId": {"type": ["string", "null"], "maxLength": 64},
+        "os": {
+          "anyOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "required": ["id", "versionId", "codename"],
+              "additionalProperties": false,
+              "properties": {
+                "id": {"type": ["string", "null"], "maxLength": 64},
+                "versionId": {"type": ["string", "null"], "maxLength": 64},
+                "codename": {"type": ["string", "null"], "maxLength": 64}
+              }
+            }
+          ]
+        }
+      }
+    },
+    "distro": {
+      "anyOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": ["format", "arch"],
+          "additionalProperties": false,
+          "properties": {
+            "format": {"enum": ["dpkg"]},
+            "arch": {"type": "string", "pattern": "^[\\w-]{1,32}$"}
+          }
+        }
+      ]
+    },
+    "services": {"type": "array", "items": {"$ref": "#/$defs/service"}},
+    "executables": {"type": "array", "items": {"$ref": "#/$defs/executable"}},
+    "libraries": {"type": "array", "items": {"$ref": "#/$defs/library"}},
+    "globalPackages": {
+      "type": "object",
+      "required": ["dir", "node", "packages", "links", "caches", "errors"],
+      "additionalProperties": false,
+      "properties": {
+        "dir": {"type": "string"},
+        "node": {
+          "anyOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "required": ["version", "platform", "arch"],
+              "additionalProperties": false,
+              "properties": {
+                "version": {"type": "string", "pattern": "^v\\d+\\.\\d+\\.\\d+$"},
+                "platform": {"type": "string"},
+                "arch": {"type": "string"}
+              }
+            }
+          ]
+        },
+        "packages": {"type": "array", "items": {"$ref": "#/$defs/package"}},
+        "links": {"type": "array", "items": {"$ref": "#/$defs/link"}},
+        "caches": {"type": "array", "items": {"$ref": "#/$defs/cache"}},
+        "errors": {"type": "array", "items": {"$ref": "#/$defs/fileError"}}
+      }
+    },
+    "monitor": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": ["error"],
+          "additionalProperties": false,
+          "properties": {"error": {"type": "string"}}
+        },
+        {
+          "type": "object",
+          "required": ["since", "until", "execs", "maps", "truncated", "malformed"],
+          "additionalProperties": false,
+          "properties": {
+            "since": {"type": ["string", "null"]},
+            "until": {"type": ["string", "null"]},
+            "execs": {"type": "array", "items": {"$ref": "#/$defs/monitored"}},
+            "maps": {"type": "array", "items": {"$ref": "#/$defs/monitored"}},
+            "truncated": {"type": "boolean"},
+            "malformed": {"type": "integer", "minimum": 0}
+          }
+        }
+      ]
+    },
+    "evidenceDigest": {"$ref": "#/$defs/sha256"},
+    "tpm": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "available": {"type": "boolean"},
+        "required": {"type": "boolean"},
+        "reason": {"type": "string"},
+        "error": {"type": "string"},
+        "quote": {
+          "type": "object",
+          "required": ["message", "signature", "pcrs"],
+          "properties": {
+            "message": {"$ref": "#/$defs/base64"},
+            "signature": {"$ref": "#/$defs/base64"},
+            "pcrs": {"type": "object"},
+            "keyId": {"type": "string"},
+            "handle": {"type": "string"},
+            "hashAlg": {"enum": ["sha256", "sha384", "sha512"]}
+          }
+        }
+      }
+    },
+    "confidential": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "available": {"type": "boolean"},
+        "required": {"type": "boolean"},
+        "reason": {"type": "string"},
+        "error": {"type": "string"},
+        "provider": {"type": "string", "pattern": "^[\\w-]{1,32}$"},
+        "report": {"$ref": "#/$defs/base64"},
+        "auxblob": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/base64"}]}
+      }
+    },
+    "ima": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "log": {"$ref": "#/$defs/base64"},
+        "error": {"type": "string"}
+      }
+    }
+  },
+  "$defs": {
+    "nonce": {"type": "string", "pattern": "^(?:[0-9a-f]{2}){16,64}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "time": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z$"},
+    "base64": {
+      "description": "Canonical base64 (RFC 4648, padded, no line breaks, unused bits zero); the pattern needs no backtracking, and contentEncoding requires a length that is a multiple of 4",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9+/]*(?:[AQgw]==|[AEIMQUYcgkosw048]=)?$",
+      "contentEncoding": "base64"
+    },
+    "stringList": {"type": "array", "items": {"type": "string"}},
+    "fileEntry": {
+      "description": "[sha256 or \"symlink:<target>\", git-style mode]",
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"type": "string"}
+    },
+    "fileMap": {"type": "object", "additionalProperties": {"$ref": "#/$defs/fileEntry"}},
+    "fileError": {
+      "type": "object",
+      "required": ["path", "error"],
+      "properties": {"path": {"type": "string"}, "error": {"type": "string"}}
+    },
+    "package": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "name": {"type": ["string", "null"]},
+        "version": {"type": ["string", "null"]},
+        "path": {"type": "string"},
+        "files": {"type": "object", "additionalProperties": {"type": "string"}},
+        "digest": {"$ref": "#/$defs/sha256"},
+        "fileCount": {"type": "integer", "minimum": 0},
+        "invalid": {"type": "boolean"},
+        "meta": {"type": "object"}
+      }
+    },
+    "link": {
+      "type": "object",
+      "required": ["path", "problem"],
+      "properties": {"path": {"type": "string"}, "problem": {"type": "string"}}
+    },
+    "packageLink": {
+      "description": "A link in node_modules and the installed package it points to (npm)",
+      "type": "object",
+      "required": ["path", "target"],
+      "additionalProperties": false,
+      "properties": {"path": {"type": "string"}, "target": {"type": "string"}}
+    },
+    "cache": {
+      "type": "object",
+      "required": ["path", "files"],
+      "properties": {"path": {"type": "string"}, "files": {"$ref": "#/$defs/stringList"}}
+    },
+    "install": {
+      "type": "object",
+      "required": ["ecosystem", "dir", "packages", "unaccounted", "links", "caches", "errors"],
+      "properties": {
+        "ecosystem": {"enum": ["npm", "pypi", "rubygems", "hex", "composer", "maven", "nuget"]},
+        "dir": {"type": "string"},
+        "packages": {"type": "array", "items": {"$ref": "#/$defs/package"}},
+        "unaccounted": {"$ref": "#/$defs/stringList"},
+        "links": {"type": "array", "items": {"$ref": "#/$defs/link"}},
+        "packageLinks": {"type": "array", "items": {"$ref": "#/$defs/packageLink"}},
+        "caches": {"type": "array", "items": {"$ref": "#/$defs/cache"}},
+        "errors": {"type": "array", "items": {"$ref": "#/$defs/fileError"}},
+        "meta": {"type": "object"}
+      }
+    },
+    "finding": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {"type": "string"},
+        "severity": {"enum": ["critical", "warning", "info"]},
+        "check": {"type": "string"}
+      }
+    },
+    "runtime": {
+      "anyOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": ["name", "label"],
+          "properties": {
+            "name": {"type": "string", "pattern": "^[\\w-]{1,32}$"},
+            "label": {"type": "string", "maxLength": 64},
+            "version": {"type": ["string", "null"]},
+            "by": {"type": ["string", "null"]}
+          }
+        }
+      ]
+    },
+    "process": {
+      "type": "object",
+      "required": ["pid", "exe", "cmdline", "runtime", "integrity"],
+      "properties": {
+        "pid": {"type": "integer", "minimum": 1},
+        "ppid": {"type": ["integer", "null"]},
+        "uid": {"type": ["integer", "null"]},
+        "cwd": {"type": ["string", "null"]},
+        "exe": {"type": ["string", "null"]},
+        "exeDeleted": {"type": "boolean"},
+        "cmdline": {"$ref": "#/$defs/stringList"},
+        "startTime": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/time"}]},
+        "runtime": {"$ref": "#/$defs/runtime"},
+        "integrity": {
+          "type": "object",
+          "required": ["findings", "incomplete"],
+          "properties": {
+            "passed": {"type": "boolean"},
+            "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+            "incomplete": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["check"],
+                "properties": {"check": {"type": "string"}, "error": {"type": "string"}}
+              }
+            },
+            "libraries": {"$ref": "#/$defs/stringList"}
+          }
+        },
+        "bundler": {
+          "type": "object",
+          "required": ["dir", "version", "files", "errors"],
+          "additionalProperties": false,
+          "properties": {
+            "dir": {"type": "string", "pattern": "^/"},
+            "version": {"type": "string"},
+            "files": {"type": "object", "additionalProperties": {"type": "string"}},
+            "errors": {"type": "array", "items": {"$ref": "#/$defs/fileError"}}
+          }
+        },
+        "changedAfterStart": {"$ref": "#/$defs/stringList"},
+        "metadataChangedAfterStart": {"$ref": "#/$defs/stringList"},
+        "changedAfterStartTruncated": {"type": "boolean"},
+        "metadataChangedAfterStartTruncated": {"type": "boolean"}
+      }
+    },
+    "git": {
+      "type": "object",
+      "required": ["commit"],
+      "additionalProperties": false,
+      "properties": {
+        "commit": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/commit"}]},
+        "ref": {"type": ["string", "null"]},
+        "error": {"type": "string"}
+      }
+    },
+    "directoryService": {
+      "type": "object",
+      "required": ["name", "kind", "root", "realRoot", "git", "files", "fileCount", "errors", "installs", "processes", "userProcesses"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string", "pattern": "^[\\w.-]{1,64}$"},
+        "kind": {"const": "directory"},
+        "root": {"type": "string"},
+        "realRoot": {"type": "string", "pattern": "^/"},
+        "git": {"$ref": "#/$defs/git"},
+        "files": {"$ref": "#/$defs/fileMap"},
+        "fileCount": {"type": "integer", "minimum": 0},
+        "errors": {"type": "array", "items": {"$ref": "#/$defs/fileError"}},
+        "manifest": {"$ref": "#/$defs/base64"},
+        "truncated": {"type": "boolean"},
+        "installs": {"type": "array", "items": {"$ref": "#/$defs/install"}},
+        "processes": {"type": "array", "items": {"$ref": "#/$defs/process"}},
+        "userProcesses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["pid"],
+            "properties": {
+              "pid": {"type": "integer"},
+              "exe": {"type": ["string", "null"]},
+              "name": {"type": ["string", "null"]},
+              "cwd": {"type": ["string", "null"]}
+            }
+          }
+        }
+      }
+    },
+    "container": {
+      "type": "object",
+      "required": ["id", "runtime", "processes"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {"type": "string", "pattern": "^[0-9a-f]{12,64}$"},
+        "runtime": {"type": "string", "maxLength": 32},
+        "name": {"type": ["string", "null"]},
+        "image": {
+          "type": "object",
+          "properties": {
+            "reference": {"type": ["string", "null"]},
+            "id": {"type": ["string", "null"]},
+            "manifestDigest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+            "repoDigests": {"$ref": "#/$defs/stringList"}
+          }
+        },
+        "platform": {
+          "type": "object",
+          "properties": {
+            "os": {"type": ["string", "null"]},
+            "architecture": {"type": ["string", "null"]}
+          }
+        },
+        "mounts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["destination"],
+            "properties": {
+              "destination": {"type": "string"},
+              "source": {"type": ["string", "null"]},
+              "root": {"type": ["string", "null"]},
+              "fsType": {"type": ["string", "null"]},
+              "readOnly": {"type": "boolean"}
+            }
+          }
+        },
+        "upper": {
+          "type": "object",
+          "required": ["files", "deleted", "errors"],
+          "properties": {
+            "files": {"$ref": "#/$defs/fileMap"},
+            "deleted": {"$ref": "#/$defs/stringList"},
+            "errors": {"type": "array", "items": {"$ref": "#/$defs/fileError"}}
+          }
+        },
+        "rootfs": {
+          "type": "object",
+          "required": ["files", "fileCount", "errors", "truncated"],
+          "additionalProperties": false,
+          "properties": {
+            "files": {"$ref": "#/$defs/fileMap"},
+            "fileCount": {"type": "integer", "minimum": 0},
+            "errors": {"type": "array", "items": {"$ref": "#/$defs/fileError"}},
+            "truncated": {"type": "boolean"}
+          }
+        },
+        "error": {"type": "string"},
+        "processes": {"type": "array", "items": {"$ref": "#/$defs/process"}}
+      }
+    },
+    "containerService": {
+      "type": "object",
+      "required": ["name", "kind", "containers"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string", "pattern": "^[\\w.-]{1,64}$"},
+        "kind": {"const": "container"},
+        "containers": {"type": "array", "items": {"$ref": "#/$defs/container"}}
+      }
+    },
+    "service": {
+      "oneOf": [
+        {"$ref": "#/$defs/directoryService"},
+        {"$ref": "#/$defs/containerService"}
+      ]
+    },
+    "owner": {
+      "anyOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": ["name", "version", "arch"],
+          "properties": {
+            "name": {"type": "string"},
+            "version": {"type": "string"},
+            "arch": {"type": "string"},
+            "listedAs": {"type": "string"},
+            "source": {"type": ["string", "null"]},
+            "installedAt": {"type": ["string", "null"]}
+          }
+        }
+      ]
+    },
+    "executable": {
+      "type": "object",
+      "required": ["path", "container"],
+      "properties": {
+        "path": {"type": "string"},
+        "container": {"type": ["string", "null"]},
+        "deleted": {"type": "boolean"},
+        "platform": {"type": "string"},
+        "arch": {"type": "string"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "size": {"type": "integer", "minimum": 0},
+        "nodeVersion": {"type": ["string", "null"]},
+        "go": {"type": "object"},
+        "cargo": {"type": "object"},
+        "package": {"$ref": "#/$defs/owner"},
+        "error": {"type": "string"}
+      }
+    },
+    "library": {
+      "type": "object",
+      "required": ["path", "container"],
+      "properties": {
+        "path": {"type": "string"},
+        "container": {"type": ["string", "null"]},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "package": {"$ref": "#/$defs/owner"},
+        "error": {"type": "string"}
+      }
+    },
+    "monitored": {
+      "type": "object",
+      "required": ["path", "count", "uids", "firstSeen", "lastSeen"],
+      "properties": {
+        "path": {"type": "string"},
+        "count": {"type": "integer", "minimum": 1},
+        "uids": {"type": "array", "items": {"type": "integer"}},
+        "firstSeen": {"type": "string"},
+        "lastSeen": {"type": "string"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "package": {"$ref": "#/$defs/owner"},
+        "error": {"type": "string"}
+      }
+    }
+  }
+}

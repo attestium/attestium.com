@@ -1,14 +1,29 @@
 {
   "name": "attestium",
-  "description": "Element of attestation - Runtime code verification and integrity monitoring library for Node.js applications",
-  "version": "0.0.3",
+  "description": "Remote attestation building blocks: an open evidence format, runtime and package verification for every major language, Sigstore, TPM, confidential VMs and containers",
+  "version": "0.1.0",
   "author": "Forward Email Community",
   "bugs": {
     "url": "https://github.com/attestium/attestium.com/issues"
   },
+  "c8": {
+    "include": [
+      "lib/**/*.js"
+    ],
+    "reporter": [
+      "text",
+      "lcov",
+      "json-summary"
+    ],
+    "check-coverage": true,
+    "branches": 100,
+    "functions": 100,
+    "lines": 100,
+    "statements": 100
+  },
   "dependencies": {
     "cosmiconfig": "^9.0.0",
-    "trusted-platform-module-2": "^1.0.0"
+    "js-yaml": "^4.3.2"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.8.1",
@@ -29,21 +44,43 @@
   },
   "exports": {
     ".": {
-      "import": "./lib/index.js",
-      "require": "./lib/index.js",
-      "types": "./lib/index.d.ts"
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
     },
-    "./process-integrity": {
-      "import": "./lib/process-integrity.js",
-      "require": "./lib/process-integrity.js"
-    },
-    "./release-verification": {
-      "import": "./lib/release-verification.js",
-      "require": "./lib/release-verification.js"
-    }
+    "./process-integrity": "./lib/process-integrity.js",
+    "./release-verification": "./lib/release-verification.js",
+    "./tpm": "./lib/tpm.js",
+    "./ima": "./lib/ima.js",
+    "./signing": "./lib/signing.js",
+    "./file-tree": "./lib/file-tree.js",
+    "./util": "./lib/util.js",
+    "./package.json": "./package.json",
+    "./http": "./lib/http.js",
+    "./evidence": "./lib/evidence.js",
+    "./schema/evidence.schema.json": "./schema/evidence.schema.json",
+    "./runtimes": "./lib/runtimes.js",
+    "./ecosystems": "./lib/ecosystems/index.js",
+    "./sigstore": "./lib/sigstore.js",
+    "./attestations": "./lib/attestations.js",
+    "./checksums": "./lib/checksums.js",
+    "./distro": "./lib/distro.js",
+    "./containers": "./lib/containers.js",
+    "./oci": "./lib/oci.js",
+    "./confidential": "./lib/confidential.js",
+    "./tpm-identity": "./lib/tpm-identity.js",
+    "./monitor": "./lib/monitor.js",
+    "./elf": "./lib/elf.js",
+    "./tuf": "./lib/tuf.js",
+    "./schema": "./lib/schema.js",
+    "./git-trees": "./lib/git-trees.js",
+    "./zip": "./lib/zip.js",
+    "./toml": "./lib/toml.js"
   },
   "files": [
+    "docs/",
     "lib/",
+    "schema/",
+    "SPEC.md",
     "README.md",
     "LICENSE"
   ],
@@ -87,15 +124,15 @@
   },
   "scripts": {
     "build": "node build.mjs",
-    "c8": "c8 --reporter=text --reporter=html --reporter=lcov node --test",
-    "coverage": "c8 --reporter=text --reporter=html --reporter=lcov --reporter=json-summary node --test",
+    "c8": "c8 node --test",
+    "coverage": "c8 node --test",
     "lint": "fixpack && remark . -qfo && xo --fix",
     "pre-commit": "lint-staged",
     "prepare": "husky",
     "prepublishOnly": "pnpm run build",
     "pretest": "pnpm run lint",
     "test": "node --test",
-    "test-coverage": "c8 --reporter=text --reporter=html --reporter=lcov --reporter=json-summary node --test"
+    "test-coverage": "c8 node --test"
   },
   "types": "lib/index.d.ts",
   "xo": {
@@ -125,7 +162,9 @@
       "unicorn/no-this-assignment": "off",
       "prefer-rest-params": "off",
       "logical-assignment-operators": "off",
-      "no-dupe-class-members": "off"
+      "no-dupe-class-members": "off",
+      "no-bitwise": "off",
+      "unicorn/no-await-expression-member": "off"
     },
     "space": 2
   }

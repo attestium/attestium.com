@@ -1,455 +1,488 @@
-const {test, describe} = require('node:test');
-const assert = require('node:assert');
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const os = require('node:os');
-const Attestium = require('../lib/index');
+const Attestium = require('../lib');
+const {signing, Tpm} = require('../lib');
+const {tempDir, writeFiles, hasTpmSimulator, startSwtpm, sleep} = require('./helpers');
 
-describe('Attestium - Element of Attestation', () => {
-  let temporaryDir;
-  let attestium;
+const quiet = {log() {}};
 
-  test('setup', () => {
-    // Create temporary directory for testing
-    temporaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'attestium-test-'));
+function project(t, files = {}) {
+  const root = tempDir(t);
+  writeFiles(root, {
+    'package.json': '{"name":"app"}',
+    'index.js': 'module.exports = 1;\n',
+    'README.md': '# app\n',
+    ...files,
+  });
+  return root;
+}
 
-    // Create test files
-    fs.writeFileSync(path.join(temporaryDir, 'test.js'), 'console.log("test");');
-    fs.writeFileSync(path.join(temporaryDir, 'package.json'), '{"name": "test"}');
-    fs.writeFileSync(path.join(temporaryDir, 'README.md'), '# Test Project');
+test('exports every submodule', () => {
+  for (const name of ['Attestium', 'signing', 'Tpm', 'ProcessIntegrity', 'ReleaseVerification', 'ima', 'fileTree', 'util', 'http']) {
+    assert.ok(Attestium[name], name);
+  }
 
-    // Create subdirectory with files
-    fs.mkdirSync(path.join(temporaryDir, 'src'));
-    fs.writeFileSync(path.join(temporaryDir, 'src', 'index.js'), 'module.exports = {};');
+  assert.equal(Attestium.VERSION, require('../package.json').version);
+  assert.equal(require('../lib/process-integrity'), Attestium.ProcessIntegrity);
+  assert.equal(typeof Attestium.digestOf, 'function');
+});
 
-    // Create test directory
-    fs.mkdirSync(path.join(temporaryDir, 'test'));
-    fs.writeFileSync(path.join(temporaryDir, 'test', 'spec.js'), 'test("example", () => {});');
+test('submodules resolve as package subpaths, and docs/ is published', () => {
+  const property = {
+    './elf': 'elf', './tuf': 'tuf', './schema': 'schema', './git-trees': 'gitTrees', './zip': 'zip', './toml': 'toml', './evidence': 'evidence', './tpm-identity': 'tpmIdentity',
+  };
+  for (const [subpath, name] of Object.entries(property)) {
+    // Resolved through the package's own "exports", as a consumer resolves it.
+    assert.equal(require(`attestium${subpath.slice(1)}`), Attestium[name], subpath);
+  }
+
+  assert.ok(require('../package.json').files.includes('docs/'), 'README links to docs/');
+});
+
+test('file names cannot inject code (regression: vm string interpolation)', async t => {
+  const marker = path.join(tempDir(t), 'pwned');
+  const evil = [
+    `a",this.constructor.constructor("return process")().mainModule.require("fs").writeFileSync(${JSON.stringify(marker).replaceAll('/', '∕')},"x"),"b.js`,
+    String.raw`back\slash".js`,
+    'new\nline.js',
+    '${process.exit(1)}.js', // eslint-disable-line no-template-curly-in-string
+  ];
+  const root = project(t, Object.fromEntries(evil.map(name => [name, 'x'])));
+  const attestium = new Attestium({projectRoot: root, logger: quiet});
+  const report = await attestium.generateVerificationReport();
+  assert.equal(fs.existsSync(marker), false);
+  for (const name of evil) {
+    assert.ok(report.files.some(file => file.relativePath === name), name);
+  }
+});
+
+test('configuration: files, precedence, and executable config is never loaded', async t => {
+  const executed = path.join(tempDir(t), 'executed');
+  const root = project(t, {
+    '.attestiumrc.json': JSON.stringify({includePatterns: ['**/*.md'], gitCommit: 'from-config'}),
+    'attestium.config.js': `require('fs').writeFileSync(${JSON.stringify(executed)}, 'x'); module.exports = {};`,
+  });
+  const attestium = new Attestium({projectRoot: root, logger: quiet});
+  assert.equal(fs.existsSync(executed), false);
+  assert.deepEqual(attestium.includePatterns, ['**/*.md']);
+  assert.equal(attestium.gitCommit, 'from-config');
+  assert.equal(new Attestium({projectRoot: root, gitCommit: 'option', logger: quiet}).gitCommit, 'option');
+
+  const viaPackage = project(t, {'package.json': JSON.stringify({attestium: {deployTime: 'd1'}})});
+  assert.equal(new Attestium({projectRoot: viaPackage, logger: quiet}).deployTime, 'd1');
+  const scalarConfig = project(t, {'.attestiumrc.yml': 'just a string\n'});
+  assert.equal(new Attestium({projectRoot: scalarConfig, logger: quiet}).gitCommit, process.env.GIT_COMMIT || null);
+
+  const originalCommit = process.env.GIT_COMMIT;
+  const originalDeploy = process.env.DEPLOY_TIME;
+  process.env.GIT_COMMIT = 'env-commit';
+  process.env.DEPLOY_TIME = 'env-deploy';
+  try {
+    const fromEnvironment = new Attestium({projectRoot: viaPackage, logger: quiet});
+    assert.equal(fromEnvironment.gitCommit, 'env-commit');
+    assert.equal(fromEnvironment.deployTime, 'd1');
+    assert.equal(new Attestium({projectRoot: scalarConfig, logger: quiet}).deployTime, 'env-deploy');
+  } finally {
+    if (originalCommit === undefined) {
+      delete process.env.GIT_COMMIT;
+    } else {
+      process.env.GIT_COMMIT = originalCommit;
+    }
+
+    if (originalDeploy === undefined) {
+      delete process.env.DEPLOY_TIME;
+    } else {
+      process.env.DEPLOY_TIME = originalDeploy;
+    }
+  }
+
+  assert.throws(() => new Attestium({projectRoot: path.join(root, 'missing')}), /does not exist/);
+  const cwdDefault = new Attestium({logger: quiet, enableTpm: false});
+  assert.equal(cwdDefault.projectRoot, process.cwd());
+  assert.equal(cwdDefault.logger, quiet);
+  assert.equal(new Attestium({projectRoot: root}).logger, console);
+});
+
+test('file selection, categories and .gitignore inheritance', async t => {
+  const root = project(t, {
+    '.gitignore': '# build output\n/dist\nlogs/\n*.log\n!keep.log\ndocs/generated/\n\n',
+    'dist/bundle.js': 'x',
+    'logs/app.js': 'x',
+    'server.log': 'x',
+    'docs/generated/api.md': 'x',
+    'docs/guide.md': 'x',
+    'node_modules/dep/index.js': 'x',
+    '.git/config': 'x',
+    '.env': 'SECRET=1',
+    'test/a.test.js': 'x',
+    'lib/x.spec.ts': 'x',
+    'config/app.json': '{}',
+    'assets/logo.svg': '<svg/>',
+    LICENSE: 'MIT',
+    'src/app.js': 'x',
+  });
+  fs.symlinkSync(root, path.join(root, 'loop'));
+  const attestium = new Attestium({
+    projectRoot: root,
+    logger: quiet,
+    enableGitignoreInheritance: true,
+    customCategories: {generated: /^docs\/generated\//, invalid: 'not a regexp'},
+  });
+  assert.deepEqual(attestium.parseGitignorePatterns('/a\nb/\nc/d\n!e\n#f\n'), ['a', 'a/**', '**/b', '**/b/**', 'c/d', 'c/d/**']);
+  const files = (await attestium.scanProjectFiles()).map(file => path.relative(root, file).split(path.sep).join('/')).sort();
+  assert.deepEqual(files, ['LICENSE', 'README.md', 'assets/logo.svg', 'config/app.json', 'docs/guide.md', 'index.js', 'lib/x.spec.ts', 'package.json', 'src/app.js', 'test/a.test.js']);
+
+  assert.equal(attestium.categorizeFile('docs/generated/x.md'), 'generated');
+  assert.equal(attestium.categorizeFile(String.raw`node_modules\x\y.js`), 'dependency');
+  assert.equal(attestium.categorizeFile('test/a.js'), 'test');
+  assert.equal(attestium.categorizeFile('lib/x.spec.ts'), 'test');
+  assert.equal(attestium.categorizeFile('package.json'), 'config');
+  assert.equal(attestium.categorizeFile('config/app.json'), 'config');
+  assert.equal(attestium.categorizeFile('docs/guide.md'), 'documentation');
+  assert.equal(attestium.categorizeFile('CHANGELOG'), 'documentation');
+  assert.equal(attestium.categorizeFile('assets/logo.svg'), 'static_asset');
+  assert.equal(attestium.categorizeFile('src/app.js'), 'source');
+
+  assert.equal(attestium.matchesPattern('a/b.js', '**/*.js'), true);
+  assert.equal(attestium.shouldExclude('node_modules/'), true);
+  assert.equal(attestium.shouldExclude(String.raw`src\app.js`), false);
+  assert.equal(attestium.shouldInclude(String.raw`src\app.js`), true);
+  assert.equal(attestium.shouldInclude('.env'), false);
+
+  const noGitignore = new Attestium({projectRoot: project(t), logger: quiet, enableGitignoreInheritance: true});
+  assert.deepEqual(noGitignore.excludePatterns, Attestium.DEFAULT_EXCLUDE);
+});
+
+test('reports, signed baselines and comparisons', async t => {
+  const root = project(t, {'src/a.js': 'a', 'src/b.js': 'b'});
+  const keys = signing.generateKeyPair();
+  const other = signing.generateKeyPair();
+  const signer = new Attestium({
+    projectRoot: root, logger: quiet, signingKey: keys.privateKey, gitCommit: 'abc',
   });
 
-  test('should create instance with default options', () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
+  const report = await signer.generateVerificationReport();
+  assert.equal(report.summary.totalFiles, 5);
+  assert.equal(report.summary.verifiedFiles, 5);
+  assert.equal(report.gitCommit, 'abc');
+  assert.equal(report.files.find(file => file.relativePath === 'src/a.js').gitBlobId, '2e65efe2a145dda7ee51d1741299f848e5bf752e');
+  assert.equal(await signer.calculateFileChecksum(path.join(root, 'src/a.js')), await signer.generateFileChecksum(path.join(root, 'src/a.js')));
+  const integrity = await signer.verifyFileIntegrity(path.join(root, 'src/a.js'));
+  assert.equal(integrity.verified, true);
+  assert.equal(integrity.category, 'source');
+  assert.deepEqual((await signer.verifyFileIntegrity(path.join(root, 'nope.js'))).error, 'ENOENT');
 
-    assert.ok(attestium instanceof Attestium);
-    assert.strictEqual(attestium.projectRoot, temporaryDir);
-    assert.ok(Array.isArray(attestium.includePatterns));
-    assert.ok(Array.isArray(attestium.excludePatterns));
-    assert.strictEqual(attestium.enableRuntimeHooks, true);
-  });
+  const baseline = await signer.exportVerificationData();
+  assert.equal(baseline.signature.keyId, signing.fingerprint(keys.publicKey));
+  assert.equal((await signer.compareWithBaseline(baseline, {publicKey: keys.publicKey})).valid, true);
+  assert.equal(await signer.verifyImportedData(baseline, {publicKey: keys.publicKey}), true);
+  assert.equal((await signer.compareWithBaseline(baseline)).signature.trusted, false, 'self-consistent but not trusted');
 
-  test('should create instance with custom options', () => {
-    const customOptions = {
-      projectRoot: temporaryDir,
-      includePatterns: ['**/*.js'],
-      excludePatterns: ['**/test-exclude/**'],
-      enableRuntimeHooks: false,
-    };
-
-    attestium = new Attestium(customOptions);
-
-    assert.strictEqual(attestium.projectRoot, temporaryDir);
-    assert.ok(attestium.includePatterns.includes('**/*.js'));
-    assert.ok(attestium.excludePatterns.includes('**/test-exclude/**'));
-    assert.strictEqual(attestium.enableRuntimeHooks, false);
-  });
-
-  test('should load configuration from cosmiconfig', () => {
-    // Create a config file
-    const configPath = path.join(temporaryDir, 'attestium.config.js');
-    fs.writeFileSync(configPath, `
-      module.exports = {
-        includePatterns: ['**/*.json'],
-        excludePatterns: ['**/test-exclude/**']
-      };
-    `);
-
-    attestium = new Attestium({projectRoot: temporaryDir});
-
-    assert.ok(attestium.includePatterns.includes('**/*.json'));
-    assert.ok(attestium.excludePatterns.includes('**/test-exclude/**'));
-  });
-
-  test('should categorize files correctly', () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
-
-    assert.strictEqual(attestium.categorizeFile('test.js'), 'source');
-    assert.strictEqual(attestium.categorizeFile('package.json'), 'config');
-    assert.strictEqual(attestium.categorizeFile('node_modules/test/index.js'), 'dependency');
-    assert.strictEqual(attestium.categorizeFile('image.png'), 'static_asset');
-    assert.strictEqual(attestium.categorizeFile('README.md'), 'documentation');
-    assert.strictEqual(attestium.categorizeFile('src/test/spec.js'), 'test');
-    assert.strictEqual(attestium.categorizeFile('file.test.js'), 'test');
-    assert.strictEqual(attestium.categorizeFile('unknown.xyz'), 'source');
-  });
-
-  test('should calculate file checksums', async () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
-
-    const testFile = path.join(temporaryDir, 'test.js');
-    const checksum = await attestium.calculateFileChecksum(testFile);
-
-    assert.ok(typeof checksum === 'string');
-    assert.strictEqual(checksum.length, 64); // SHA-256 hex length
-  });
-
-  test('should scan project files', async () => {
-    attestium = new Attestium({
-      projectRoot: temporaryDir,
-      includePatterns: ['**/*.js', '**/*.json', '**/*.md'],
-      excludePatterns: ['**/node_modules/**'],
-    });
-
-    const files = await attestium.scanProjectFiles();
-
-    assert.ok(Array.isArray(files));
-    // More lenient - just check that we get an array, even if empty
-    assert.ok(files.length >= 0);
-  });
-
-  test('should verify file integrity', async () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
-
-    const testFile = path.join(temporaryDir, 'test.js');
-    const result = await attestium.verifyFileIntegrity(testFile);
-
-    assert.ok(typeof result === 'object');
-    assert.ok(typeof result.checksum === 'string');
-    assert.strictEqual(result.verified, true);
-    assert.ok(typeof result.timestamp === 'string');
-    assert.ok(typeof result.category === 'string');
-  });
-
-  test('should generate verification report', async () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
-
-    const report = await attestium.generateVerificationReport();
-
-    assert.ok(typeof report === 'object');
-    assert.ok(typeof report.timestamp === 'string');
-    assert.ok(typeof report.projectRoot === 'string');
-    assert.ok(Array.isArray(report.files));
-    assert.ok(typeof report.summary === 'object');
-    assert.ok(typeof report.summary.totalFiles === 'number');
-    assert.ok(typeof report.summary.verifiedFiles === 'number');
-  });
-
-  test('should filter files by patterns', () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
-
-    const files = ['test.js', 'package.json', 'node_modules/test.js', 'image.png'];
-    const includePatterns = ['**/*.js', '**/*.json'];
-    const excludePatterns = ['**/node_modules/**'];
-
-    const filtered = attestium.filterFilesByPatterns(files);
-
-    assert.ok(Array.isArray(filtered));
-    // The method should filter based on the instance's patterns
-    // Since we don't have specific files in the temp dir, just check it returns an array
-    assert.ok(filtered.length >= 0);
-  });
-
-  test('should parse gitignore patterns', () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
-
-    const gitignoreContent = `
-# Comments should be ignored
-node_modules/
-*.log
-/dist
-temp/
-!important.log
-`;
-
-    const patterns = attestium.parseGitignorePatterns(gitignoreContent);
-
-    assert.ok(Array.isArray(patterns));
-    assert.ok(patterns.includes('**/node_modules/**'));
-    assert.ok(patterns.includes('**/*.log'));
-    assert.ok(patterns.includes('dist/**'));
-    assert.ok(patterns.includes('**/temp/**'));
-    // Negation patterns should be skipped
-    assert.ok(!patterns.some(p => p.includes('important.log')));
-  });
-
-  test('should load gitignore patterns', () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
-
-    // Create .gitignore file
-    const gitignorePath = path.join(temporaryDir, '.gitignore');
-    fs.writeFileSync(gitignorePath, 'node_modules/\n*.log\n');
-
-    const originalLength = attestium.excludePatterns.length;
-    attestium.loadGitignorePatterns();
-
-    assert.ok(attestium.excludePatterns.length > originalLength);
-    assert.ok(attestium.excludePatterns.includes('**/node_modules/**'));
-    assert.ok(attestium.excludePatterns.includes('**/*.log'));
-  });
-
-  test('should setup runtime hooks when enabled', () => {
-    attestium = new Attestium({
-      projectRoot: temporaryDir,
-      enableRuntimeHooks: true,
-    });
-
-    assert.strictEqual(attestium.enableRuntimeHooks, true);
-    assert.ok(attestium.loadedModules instanceof Map);
-    assert.ok(attestium.moduleChecksums instanceof Map);
-  });
-
-  test('should track runtime module loading', () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
-
-    const modulePath = '/test/module.js';
-    const checksum = 'abc123';
-
-    attestium.trackModuleLoad(modulePath, checksum);
-
-    assert.ok(attestium.loadedModules.has(modulePath));
-    assert.ok(attestium.moduleChecksums.has(modulePath));
-    assert.strictEqual(attestium.moduleChecksums.get(modulePath), checksum);
-  });
-
-  test('should get runtime verification status', () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
-
-    // Track some modules
-    attestium.trackModuleLoad('/test/module1.js', 'checksum1');
-    attestium.trackModuleLoad('/test/module2.js', 'checksum2');
-
-    const status = attestium.getRuntimeVerificationStatus();
-
-    assert.ok(typeof status === 'object');
-    assert.ok(typeof status.timestamp === 'string');
-    assert.strictEqual(status.totalModules, 2);
-    assert.ok(Array.isArray(status.modules));
-    assert.strictEqual(status.modules.length, 2);
-  });
-
-  test('should log messages with different levels', () => {
-    let loggedMessage = '';
-    const mockLogger = {
-      log(message) {
-        loggedMessage = message;
+  // Untrusted key, tampered baseline, missing signature.
+  assert.match((await signer.compareWithBaseline(baseline, {publicKey: other.publicKey})).errors[0].error, /Key id does not match/);
+  const tampered = structuredClone(baseline);
+  tampered.files['src/a.js'].checksum = tampered.files['src/b.js'].checksum;
+  assert.match((await signer.compareWithBaseline(tampered, {publicKey: keys.publicKey})).errors[0].error, /does not verify/);
+  const {signature, ...unsigned} = baseline;
+  assert.match((await signer.compareWithBaseline(unsigned, {publicKey: keys.publicKey})).errors[0].error, /not signed/);
+  assert.equal(baseline.type, 'attestium-baseline');
+  // Something else the same key signed, shaped like a baseline: not accepted as one.
+  for (const type of [undefined, 'attestium-verification-response', 'deploy-approval']) {
+    const {signature: _, ...data} = baseline;
+    const envelope = signing.sign({...data, type}, keys.privateKey);
+    const other = {
+      ...envelope.payload, signature: {
+        alg: envelope.alg, keyId: envelope.keyId, publicKey: envelope.publicKey, value: envelope.signature,
       },
     };
+    assert.deepEqual((await signer.compareWithBaseline(other, {publicKey: keys.publicKey})).errors, [{error: 'Not a baseline'}], String(type));
+  }
 
-    attestium = new Attestium({
-      projectRoot: temporaryDir,
-      logger: mockLogger,
-    });
+  assert.equal((await signer.compareWithBaseline(null)).errors[0].error, 'Malformed baseline');
+  assert.equal((await signer.compareWithBaseline({files: null})).valid, false);
 
-    attestium.log('Test message', 'INFO');
+  // Changes on disk.
+  const logs = [];
+  const plain = new Attestium({projectRoot: root, logger: {log: message => logs.push(message)}});
+  const plainBaseline = await plain.exportVerificationData();
+  assert.equal(plainBaseline.signature, undefined);
+  fs.writeFileSync(path.join(root, 'src/a.js'), 'changed');
+  fs.rmSync(path.join(root, 'src/b.js'));
+  fs.writeFileSync(path.join(root, 'src/c.js'), 'new');
+  const diff = await plain.compareWithBaseline(plainBaseline);
+  assert.deepEqual({added: diff.added, removed: diff.removed, modified: diff.modified}, {added: ['src/c.js'], removed: ['src/b.js'], modified: ['src/a.js']});
+  assert.equal(await plain.verifyImportedData(plainBaseline), false);
+  assert.ok(logs.some(line => /\[WARN] Baseline mismatch: 1 modified, 1 added, 1 removed/.test(line)));
 
-    assert.ok(loggedMessage.includes('[ATTESTIUM]'));
-    assert.ok(loggedMessage.includes('[INFO]'));
-    assert.ok(loggedMessage.includes('Test message'));
+  // Unreadable files are reported, not skipped silently.
+  if (!(process.getuid && process.getuid() === 0)) {
+    fs.chmodSync(path.join(root, 'src/c.js'), 0);
+    const withError = await plain.generateVerificationReport();
+    assert.equal(withError.summary.failedFiles, 1);
+    fs.chmodSync(path.join(root, 'src/c.js'), 0o644);
+  }
+});
+
+test('challenge-response with signed verification responses', async t => {
+  const root = project(t);
+  const keys = signing.generateKeyPair();
+  const attestium = new Attestium({projectRoot: root, logger: quiet, signingKey: keys.privateKey});
+  const challenge = attestium.generateChallenge();
+  assert.equal(challenge.nonce.length, 64);
+  assert.equal(attestium.validateChallenge(challenge), true);
+  assert.equal(attestium.validateChallenge(attestium.generateChallenge(-1)), false);
+  assert.equal(attestium.validateChallenge({expiresAt: 'not a date'}), false);
+  assert.equal(attestium.validateChallenge(null), false);
+  assert.equal(await attestium.verifyChallenge(challenge, challenge.nonce), true);
+  assert.equal(await attestium.verifyChallenge(JSON.stringify(challenge), challenge.nonce), true);
+  assert.equal(await attestium.verifyChallenge('{not json', challenge.nonce), false);
+  assert.equal(await attestium.verifyChallenge(challenge, 'other'), false);
+  assert.equal(await attestium.verifyChallenge(null, challenge.nonce), false);
+  assert.equal(await attestium.verifyChallenge(challenge, 5), false);
+
+  const response = await attestium.generateVerificationResponse(challenge.nonce.toUpperCase());
+  const {digest} = await attestium.generateVerificationReport();
+  assert.deepEqual(Attestium.verifyVerificationResponse(response, {nonce: challenge.nonce, publicKey: keys.publicKey, digest}), {valid: true, errors: []});
+  assert.deepEqual(Attestium.verifyVerificationResponse(response, {
+    nonce: 'ab'.repeat(32), publicKey: keys.publicKey, digest: 'x', maxAgeMs: -120_000,
+  }).errors, [
+    'Nonce mismatch',
+    'Response is too old or from the future',
+    'Tree digest differs from the expected digest',
+  ]);
+  assert.match(Attestium.verifyVerificationResponse(response, {nonce: challenge.nonce, publicKey: signing.generateKeyPair().publicKey}).errors[0], /^Signature:/);
+  const untrusted = Attestium.verifyVerificationResponse({...response, signature: 'AAAA'}, {nonce: challenge.nonce, publicKey: keys.publicKey});
+  assert.match(untrusted.errors[0], /does not verify/);
+
+  // Another statement signed by the same key, with a matching nonce, time
+  // and digest, is not a verification response.
+  const {type, ...fields} = response.payload;
+  for (const payload of [fields, {...fields, type: 'attestium-baseline'}, {...fields, type: 'deploy-approval'}, null, 'attestium-verification-response']) {
+    assert.deepEqual(Attestium.verifyVerificationResponse(signing.sign(payload, keys.privateKey), {nonce: challenge.nonce, publicKey: keys.publicKey, digest}), {valid: false, errors: ['Not a verification response']}, JSON.stringify(payload));
+  }
+
+  const unsignedResponse = await new Attestium({projectRoot: root, logger: quiet}).generateVerificationResponse(challenge.nonce);
+  assert.equal(unsignedResponse.signature, null);
+  assert.equal(unsignedResponse.payload.digest, digest);
+  await assert.rejects(attestium.generateVerificationResponse('short'), /16 to 64 bytes/);
+});
+
+test('runtime tracking records the source that was actually compiled', async t => {
+  const root = project(t);
+  const modulePath = path.join(root, 'tracked.js');
+  fs.writeFileSync(modulePath, 'module.exports = "original";\n');
+  const attestium = new Attestium({projectRoot: root, logger: quiet, enableRuntimeHooks: true});
+  const loaded = [];
+  attestium.on('moduleLoaded', record => loaded.push(record.filename));
+  attestium.setupRuntimeHooks();
+  assert.equal(require(modulePath), 'original');
+  assert.deepEqual(loaded, [modulePath]);
+
+  let status = await attestium.getRuntimeVerificationStatus();
+  assert.equal(status.enabled, true);
+  const record = status.modules.find(module => module.filename === modulePath);
+  assert.equal(record.changedOnDisk, false);
+
+  fs.writeFileSync(modulePath, 'module.exports = "swapped after load";\n');
+  status = await attestium.getRuntimeVerificationStatus();
+  assert.equal(status.modules.find(module => module.filename === modulePath).changedOnDisk, true);
+  assert.ok(status.changedOnDisk >= 1);
+  fs.rmSync(modulePath);
+  status = await attestium.getRuntimeVerificationStatus();
+  assert.equal(status.modules.find(module => module.filename === modulePath).diskSha256, null);
+
+  // A second instance shares the process-wide hook without re-installing it.
+  const second = new Attestium({projectRoot: root, logger: quiet, enableRuntimeHooks: true});
+  await second.cleanup();
+  await attestium.cleanup();
+  await attestium.cleanup();
+  const again = path.join(root, 'again.js');
+  fs.writeFileSync(again, 'module.exports = 2;');
+  require(again);
+  assert.deepEqual(loaded, [modulePath], 'no events after cleanup');
+  assert.equal((await attestium.getSecurityStatus()).security.runtimeTracking, true);
+});
+
+test('continuous verification reports changed, added and removed files', async t => {
+  const root = project(t);
+  const logs = [];
+  const attestium = new Attestium({projectRoot: root, logger: {log: message => logs.push(message)}});
+  const violations = [];
+  const changed = [];
+  attestium.on('integrityViolation', violation => violations.push(`${violation.type}:${violation.file}`));
+  attestium.on('fileChanged', file => changed.push(file));
+  assert.deepEqual(await attestium.runVerificationCycle(), []);
+
+  attestium.startContinuousVerification(10);
+  fs.writeFileSync(path.join(root, 'index.js'), 'changed');
+  fs.writeFileSync(path.join(root, 'added.js'), 'new');
+  fs.rmSync(path.join(root, 'README.md'));
+  for (let i = 0; i < 100 && violations.length < 3; i++) {
+    await sleep(10);
+  }
+
+  attestium.stopContinuousVerification();
+  attestium.stopContinuousVerification();
+  assert.deepEqual(violations.sort(), ['fileAdded:added.js', 'fileChanged:index.js', 'fileRemoved:README.md']);
+  assert.deepEqual(changed, ['index.js']);
+  assert.ok(logs.some(line => line.includes('Continuous verification started')));
+  assert.ok(logs.some(line => line.includes('Continuous verification stopped')));
+
+  // Errors are emitted and the loop keeps going.
+  const errors = [];
+  const failing = new Attestium({projectRoot: root, logger: quiet});
+  failing.on('verificationError', error => errors.push(error.message));
+  failing.generateVerificationReport = async () => {
+    throw new Error('disk on fire');
+  };
+
+  failing.startContinuousVerification(5);
+  for (let i = 0; i < 100 && errors.length < 2; i++) {
+    await sleep(10);
+  }
+
+  await failing.cleanup();
+  assert.ok(errors.length >= 2);
+
+  // Random and non-numeric intervals schedule without running immediately.
+  const random = new Attestium({
+    projectRoot: root, logger: quiet, continuousVerification: true, verificationInterval: 'random',
   });
+  assert.ok(random._verificationTimer);
+  await random.cleanup();
+  const odd = new Attestium({projectRoot: root, logger: quiet});
+  odd.verificationInterval = {};
+  odd.startContinuousVerification();
+  assert.ok(odd._verificationTimer);
+  await odd.cleanup();
+});
 
-  test('should handle errors gracefully', async () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
+test('a report with a symbolic link verifies (the verifier digests entry types as the attester does)', async t => {
+  const root = project(t);
+  fs.symlinkSync('index.js', path.join(root, 'current.js'));
+  const report = await new Attestium({projectRoot: root, logger: quiet}).generateVerificationReport();
+  assert.equal(report.files.find(file => file.relativePath === 'current.js').mode, '120000');
+  const attestation = {
+    nonce: 'ab'.repeat(16), reportDigest: report.digest, softwareVerification: report, hardwareAttestation: {message: '', signature: ''},
+  };
+  const {errors} = Attestium.verifyHardwareAttestation(attestation, {nonce: 'ab'.repeat(16), publicKey: 'none'});
+  assert.ok(!errors.includes('Report digest does not match the file list'), errors.join('; '));
 
-    // Test with non-existent file
-    try {
-      await attestium.calculateFileChecksum('/tmp/non-existent.js');
-      assert.fail('Should have thrown an error');
-    } catch (error) {
-      assert.ok(error instanceof Error);
+  // A file whose content is the link's target is a different tree.
+  const {manifestDigest} = Attestium.fileTree;
+  assert.notEqual(report.digest, manifestDigest(report.files.map(file => ({path: file.relativePath, sha256: file.checksum}))));
+});
+
+test('TPM-bound hardware attestation', {skip: !hasTpmSimulator}, async t => {
+  const {tcti} = await startSwtpm(t);
+  const root = project(t);
+  fs.symlinkSync('index.js', path.join(root, 'current.js'));
+  const attestium = new Attestium({projectRoot: root, logger: quiet, tpm: {tcti}});
+  assert.equal(await attestium.isTpmAvailable(), true);
+  const key = await attestium.initializeTpm();
+  assert.deepEqual(await attestium.initializeTpm(), key, 'existing key is reused');
+
+  const {nonce} = attestium.generateChallenge();
+  const attestation = await attestium.generateHardwareAttestation(nonce, {pcrList: [0, 7]});
+  assert.equal(attestation.type, 'hardware-backed');
+  assert.deepEqual(Attestium.verifyHardwareAttestation(attestation, {nonce, publicKey: key.publicKey}), {valid: true, errors: []});
+
+  // Swapping the file list invalidates the binding to the quote.
+  const tampered = structuredClone(attestation);
+  tampered.softwareVerification.files[0].checksum = 'f'.repeat(64);
+  assert.deepEqual(Attestium.verifyHardwareAttestation(tampered, {nonce, publicKey: key.publicKey}).errors, [
+    'Report digest does not match the file list',
+    'Quote nonce does not match (stale or replayed quote)',
+  ]);
+
+  // Consistent but different report: the quote was over another digest.
+  const reDigested = structuredClone(tampered);
+  const {manifestDigest} = Attestium.fileTree;
+  reDigested.reportDigest = manifestDigest(reDigested.softwareVerification.files.map(file => ({path: file.relativePath, sha256: file.checksum, type: file.mode === '120000' ? 'symlink' : 'file'})));
+  reDigested.softwareVerification.digest = reDigested.reportDigest;
+  assert.deepEqual(Attestium.verifyHardwareAttestation(reDigested, {nonce, publicKey: key.publicKey}).errors, ['Quote nonce does not match (stale or replayed quote)']);
+  // The expected nonce is required and must be the one the attestation answers.
+  assert.deepEqual(Attestium.verifyHardwareAttestation(attestation, {nonce: undefined, publicKey: key.publicKey}), {valid: false, errors: ['Nonce must be 16 to 64 bytes of hex']});
+  const {nonce: other} = attestium.generateChallenge();
+  assert.deepEqual(Attestium.verifyHardwareAttestation(attestation, {nonce: other, publicKey: key.publicKey}).errors, [
+    'Attestation does not answer this nonce',
+    'Quote nonce does not match (stale or replayed quote)',
+  ]);
+
+  const random = await attestium.generateHardwareRandom(8);
+  assert.equal(random.source, 'tpm');
+  assert.equal(random.bytes.length, 8);
+  const status = await attestium.getSecurityStatus();
+  assert.equal(status.security.tpmAvailable, true);
+  assert.equal(status.security.signingKeyConfigured, false);
+  await assert.rejects(attestium.generateHardwareAttestation('short'), /16 to 64 bytes/);
+});
+
+test('TPM disabled or failing falls back explicitly', async t => {
+  const root = project(t);
+  const keys = signing.generateKeyPair();
+  const disabled = new Attestium({
+    projectRoot: root, logger: quiet, enableTpm: false, signingKey: keys.privateKey,
+  });
+  assert.equal(await disabled.isTpmAvailable(), false);
+  await assert.rejects(disabled.initializeTpm(), /TPM is disabled/);
+  await assert.rejects(disabled.generateHardwareAttestation('ab'.repeat(16)), /TPM not available/);
+  assert.equal((await disabled.generateHardwareRandom()).source, 'os');
+  const status = await disabled.getSecurityStatus();
+  assert.equal(status.security.signingKeyId, signing.fingerprint(keys.publicKey));
+  assert.equal(status.system.attestiumVersion, Attestium.VERSION);
+  assert.match(disabled.getTpmInstallationInstructions(), /tpm2-tools/);
+
+  const logs = [];
+  const flaky = new Attestium({
+    projectRoot: root,
+    logger: {log: message => logs.push(message)},
+    tpm: {
+      tcti: 'fake',
+      async run(file) {
+        if (file === 'tpm2_getcap') {
+          return 'TPM2_PT_FAMILY_INDICATOR:\n  raw: 0x322E3000\n  value: "2.0"\n';
+        }
+
+        throw new Error(`${file} exploded`);
+      },
+    },
+  });
+  const random = await flaky.generateHardwareRandom(4);
+  assert.equal(random.source, 'os');
+  assert.ok(logs.some(line => /\[WARN] TPM random failed: tpm2_getrandom exploded/.test(line)));
+  await assert.rejects(flaky.initializeTpm(), /tpm2_readpublic exploded|tpm2_createek exploded/);
+  assert.ok(flaky.tpm instanceof Tpm);
+
+  // A logger without log() is tolerated.
+  new Attestium({projectRoot: root, logger: {}}).log('ignored');
+});
+
+test('responses and file checks: untrusted signers and unstable files', async t => {
+  const root = project(t);
+  const keys = signing.generateKeyPair();
+  const attestium = new Attestium({projectRoot: root, logger: quiet, signingKey: keys.privateKey});
+  const {nonce} = attestium.generateChallenge();
+  const response = await attestium.generateVerificationResponse(nonce);
+  assert.deepEqual(Attestium.verifyVerificationResponse(response, {nonce}).errors, ['Signature: untrusted']);
+
+  const file = path.join(root, 'big.bin');
+  fs.writeFileSync(file, Buffer.alloc(2 * 1024 * 1024));
+  const originalRead = fs.read;
+  let appended = false;
+  t.mock.method(fs, 'read', (...args) => {
+    if (!appended) {
+      appended = true;
+      fs.appendFileSync(file, 'x');
     }
+
+    return Reflect.apply(originalRead, fs, args);
   });
-
-  test('should validate configuration options', () => {
-    // Test with invalid project root
-    assert.throws(() => {
-      new Attestium({projectRoot: '/non/existent/path'});
-    }, Error);
-  });
-
-  test('should export verification data', async () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
-
-    const exportData = await attestium.exportVerificationData();
-
-    assert.ok(typeof exportData === 'object');
-    assert.ok(typeof exportData.metadata === 'object');
-    assert.ok(typeof exportData.files === 'object');
-    assert.ok(typeof exportData.signature === 'string');
-    assert.strictEqual(exportData.signature.length, 64); // SHA-256 hex
-  });
-
-  test('should import and verify exported data', async () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
-
-    const exportData = await attestium.exportVerificationData();
-    const isValid = await attestium.verifyImportedData(exportData);
-
-    assert.strictEqual(isValid, true);
-  });
-
-  test('should detect tampering in imported data', async () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
-
-    const exportData = await attestium.exportVerificationData();
-
-    // Tamper with the data
-    exportData.files['tampered.js'] = {checksum: 'fake', category: 'source', size: 100};
-
-    const isValid = await attestium.verifyImportedData(exportData);
-
-    assert.strictEqual(isValid, false);
-  });
-
-  test('should generate cryptographic challenge', () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
-
-    const challenge = attestium.generateChallenge();
-
-    assert.ok(typeof challenge === 'object');
-    assert.ok(typeof challenge.nonce === 'string');
-    assert.ok(typeof challenge.timestamp === 'string');
-    assert.ok(typeof challenge.expiresAt === 'string');
-    assert.ok(challenge.nonce.length > 0);
-  });
-
-  test('should validate challenge expiry', () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
-
-    // Valid challenge
-    const validChallenge = attestium.generateChallenge();
-    assert.strictEqual(attestium.validateChallenge(validChallenge), true);
-
-    // Expired challenge
-    const expiredChallenge = {
-      nonce: 'test',
-      timestamp: new Date().toISOString(),
-      expiresAt: new Date(Date.now() - 1000).toISOString(), // 1 second ago
-    };
-    assert.strictEqual(attestium.validateChallenge(expiredChallenge), false);
-
-    // Invalid challenge
-    assert.strictEqual(attestium.validateChallenge(null), false);
-    assert.strictEqual(attestium.validateChallenge({}), false);
-  });
-
-  test('should generate verification report with challenge', async () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
-
-    const challenge = 'test-nonce-12345';
-    const report = await attestium.generateVerificationReportWithChallenge(challenge);
-
-    assert.ok(typeof report === 'object');
-    assert.ok(typeof report.challengeResponse === 'object');
-    assert.strictEqual(report.challengeResponse.challenge, challenge);
-    assert.ok(typeof report.challengeResponse.signature === 'string');
-    assert.ok(typeof report.challengeResponse.timestamp === 'string');
-  });
-
-  test('should sign and verify responses', () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
-
-    const nonce = 'test-nonce';
-    const checksum = 'test-checksum';
-
-    const signature = attestium.signResponse(nonce, checksum);
-    assert.ok(typeof signature === 'string');
-    assert.strictEqual(signature.length, 64); // SHA-256 hex length
-
-    // Verify signature (note: this is a simplified test)
-    const isValid = attestium.verifySignature(nonce, signature, checksum);
-    // Note: This might fail due to timestamp precision, but tests the method exists
-    assert.ok(typeof isValid === 'boolean');
-  });
-
-  test('should generate verification response for external auditors', async () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
-
-    const nonce = 'auditor-nonce-12345';
-    const response = await attestium.generateVerificationResponse(nonce);
-
-    assert.ok(typeof response === 'object');
-    assert.strictEqual(response.success, true);
-    assert.strictEqual(response.nonce, nonce);
-    assert.ok(typeof response.timestamp === 'string');
-    assert.ok(typeof response.verification === 'object');
-    assert.ok(typeof response.verification.signature === 'string');
-    assert.ok(typeof response.verification.checksum === 'string');
-    assert.ok(typeof response.verification.summary === 'object');
-  });
-
-  test('should use tamper-resistant nonce generation in challenges', () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
-
-    const challenge = attestium.generateChallenge();
-
-    assert.ok(typeof challenge === 'object');
-    assert.ok(typeof challenge.nonce === 'string');
-    assert.ok(challenge.nonce.length > 0);
-
-    // Verify nonce was generated in tamper-resistant context
-    // (This is implicit since generateChallenge uses tamperResistantStore.generateSecureNonce)
-    assert.ok(challenge.nonce.includes('=') || challenge.nonce.includes('+') || challenge.nonce.includes('/')); // Base64 characteristics
-  });
-
-  test('should initialize tamper-resistant store', () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
-
-    assert.ok(attestium.tamperResistantStore);
-    assert.ok(typeof attestium.tamperResistantStore.generateSecureNonce === 'function');
-    assert.ok(typeof attestium.tamperResistantStore.validateIntegrity === 'function');
-  });
-
-  test('should validate tamper-resistant store integrity', () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
-
-    const isValid = attestium.tamperResistantStore.validateIntegrity();
-    assert.strictEqual(isValid, true);
-  });
-
-  test('should prevent tampering with verification store', () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
-
-    // Attempt to modify the secure store should fail
-    assert.throws(() => {
-      attestium.tamperResistantStore.secureStore.storeChecksum = () => 'hacked';
-    }, /tamper-resistant/);
-  });
-
-  test('should generate secure nonces in isolated context', () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
-
-    const nonce1 = attestium.tamperResistantStore.generateSecureNonce();
-    const nonce2 = attestium.tamperResistantStore.generateSecureNonce();
-
-    assert.ok(typeof nonce1 === 'string');
-    assert.ok(typeof nonce2 === 'string');
-    assert.notStrictEqual(nonce1, nonce2);
-    assert.ok(nonce1.length > 0);
-  });
-
-  test('should store and verify checksums in tamper-resistant memory', () => {
-    attestium = new Attestium({projectRoot: temporaryDir});
-
-    const testPath = '/test/path';
-    const testChecksum = 'abc123';
-    const testNonce = 'test-nonce';
-
-    // Store checksum
-    const key = attestium.tamperResistantStore.storeChecksum(testPath, testChecksum, testNonce);
-    assert.ok(typeof key === 'string');
-
-    // Verify checksum
-    const isValid = attestium.tamperResistantStore.verifyChecksum(testPath, testChecksum, testNonce);
-    assert.strictEqual(isValid, true);
-
-    // Invalid verification should fail
-    const isInvalid = attestium.tamperResistantStore.verifyChecksum(testPath, 'wrong', testNonce);
-    assert.strictEqual(isInvalid, false);
-  });
-
-  test('cleanup', () => {
-    // Clean up temporary directory
-    if (temporaryDir && fs.existsSync(temporaryDir)) {
-      fs.rmSync(temporaryDir, {recursive: true, force: true});
-    }
-  });
+  const result = await attestium.verifyFileIntegrity(file);
+  assert.equal(result.verified, false);
+  assert.match(result.error, /changed while hashing/);
 });

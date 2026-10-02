@@ -1,37 +1,31 @@
 # The Problem
 
-The software supply chain is broken. We have focused intensely on securing software before it's deployed, but we've largely ignored what happens after. This is the critical gap where trust evaporates.
+Most software supply chain security work secures software before it is deployed. What happens after deployment is largely unchecked, and that is where a user's trust in a service actually rests.
 
 ## Build-Time Security is Not Enough
 
-We have made great strides with initiatives like SLSA[^slsa] and Sigstore[^sigstore], creating a chain of trust from source code to binary. But that chain breaks at runtime. As Google's engineers noted, build-time enforcement alone cannot protect infrastructure from compromised code[^google_bab]. A runtime mechanism is not just a nice-to-have; it is a necessity.
+SLSA [@slsa], in-toto [@in_toto] and Sigstore [@sigstore; @sigstore_ccs] create a verifiable chain from source code to a signed artifact. That chain ends when the artifact is deployed. Google's description of Binary Authorization for Borg makes the same point: alongside checks at deploy time, it continuously re-validates what is already running [@google_bab]. A service that publishes its source code gives its users something to read, but not a way to confirm that the published code is what answers their requests.
 
 ## Where Existing Solutions Fall Short
 
-Before developing Attestium, we conducted extensive research into existing verification, attestation, and integrity monitoring solutions. Our analysis revealed nine critical gaps that existing solutions couldn't address for our specific requirements:
+A survey of existing verification, attestation and integrity monitoring tools found nine gaps that none of them closed:
 
-1. **Runtime Application Verification Gap**: Most solutions focus on build-time, deployment-time, or infrastructure-level verification. They cannot detect runtime tampering or code injection attacks.
+1. **Runtime Application Verification Gap**: Most tools verify at build time, at deployment time, or at the level of the boot chain. They do not check what an application is running now.
 
-2. **Third-Party Verification API Gap**: Existing solutions lack standardized APIs for external verification, making it difficult for auditors to independently verify system integrity.
+2. **Third-Party Verification Gap**: Few tools produce evidence that an outside party can check independently. Most report a verdict computed on the machine being checked, which is only as trustworthy as that machine.
 
-3. **Developer Experience Gap**: Hardware-based solutions require specialized knowledge and infrastructure, creating a high barrier to adoption for typical web applications.
+3. **Explanation Gap**: File integrity tools compare files with an earlier snapshot of the same machine. A snapshot taken after a compromise is a bad baseline. What is needed is a reference the operator does not control for every file that runs, and an explicit report of every file that has none.
 
-4. **Node.js Ecosystem Gap**: Most solutions are language-agnostic or focused on other platforms, with poor integration into Node.js applications and workflows.
+4. **Language and Binary Coverage Gap**: A real service runs an interpreter or a compiled binary, libraries from its operating system distribution, packages from one or more language registries, and often containers. Tools that cover one ecosystem leave the rest unchecked.
 
-5. **Cost and Complexity Gap**: Many solutions are expensive or too complex for many applications and organizations.
+5. **Hardware Binding Gap**: Hardware roots of trust (TPMs, confidential virtual machines) prove which machine produced a statement and how it booted, but they say nothing about the application unless its evidence is bound into the hardware-signed statement.
 
-6. **Granular Monitoring Gap**: File integrity tools monitor files, and application tools monitor performance, but no solution provides granular application code verification.
+6. **Continuous Verification Gap**: A point-in-time audit cannot detect a change that was made and undone between two audits.
 
-7. **Continuous Verification Gap**: Most solutions provide point-in-time verification, which cannot detect tampering between verification intervals.
+7. **Process Memory Integrity Gap**: File checks verify files on disk, not what is running in memory. An attacker who injects code with `ptrace`, writes to `/proc/<pid>/mem`, or loads a library with `LD_PRELOAD` passes every file-level check because the file on disk is unchanged [@redcanary_fileless]. Each language runtime adds its own injection paths: `NODE_OPTIONS`, `PYTHONPATH`, Java agents, `RUBYOPT`, .NET start-up hooks and debug ports.
 
-8. **Process Memory Integrity Gap**: Existing tools verify files on disk, but they do not verify what is actually running in memory. An attacker who injects code via `ptrace`, writes to `/proc/<pid>/mem`, or uses `LD_PRELOAD` to hijack shared library loading will pass every file-level check because the on-disk binary is unchanged—only the in-memory copy is modified. This is the blind spot that makes fileless malware and runtime code injection so effective[^redcanary_fileless].
+8. **Supply Chain Provenance Gap**: A package in a registry can differ from its public source, and a package on disk can differ from what the registry served. Provenance attestations help for packages that publish them [@npm_provenance], but most packages do not, and nothing in a typical deployment checks the installed files against the exact artifacts the lockfile pinned.
 
-9. **Supply Chain Provenance Gap**: Even when a package is verified against the npm registry, there is no guarantee that the published version was built from the source code in the project's public repository. An attacker with npm publish credentials can push a version that differs entirely from what's on GitHub, and no existing tool in the Node.js ecosystem detects this divergence[^npm_supply_chain].
+9. **Cost and Complexity Gap**: Hardware-based attestation frameworks require specialized knowledge and infrastructure. Small teams need something that installs as one binary and runs in the CI system they already use.
 
-We need a solution that is holistic, layered, and developer-first. This is why we built Attestium.
-
-[^slsa]: SLSA, "Supply-chain Levels for Software Artifacts": [https://slsa.dev/](https://slsa.dev/)
-[^sigstore]: Sigstore, "A new standard for signing, verifying, and protecting software": [https://www.sigstore.dev/](https://www.sigstore.dev/)
-[^google_bab]: Google Cloud, "Binary Authorization for Borg": [https://cloud.google.com/docs/security/binary-authorization-for-borg](https://cloud.google.com/docs/security/binary-authorization-for-borg)
-[^redcanary_fileless]: Red Canary, "Process Memory Integrity on Linux": [https://redcanary.com/blog/threat-detection/process-memory-integrity-linux/](https://redcanary.com/blog/threat-detection/process-memory-integrity-linux/)
-[^npm_supply_chain]: Socket, "Supply Chain Attacks on npm": [https://socket.dev/blog/supply-chain-attacks-on-npm](https://socket.dev/blog/supply-chain-attacks-on-npm)
+These gaps motivate the approach described in the next section.

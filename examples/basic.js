@@ -1,57 +1,41 @@
+/**
+ * Baseline and compare: record a signed manifest at deploy time, then check
+ * the tree against it later.
+ *
+ *   node examples/basic.js [projectRoot]
+ */
+
+'use strict';
+
 const Attestium = require('../lib/index.js');
 
-async function basicExample() {
-  console.log('🧪 Attestium - Element of Attestation\n');
-  console.log('   Runtime Code Verification and Integrity Monitoring');
-  console.log('   Inspired by Forward Email and Mullvad research\n');
+async function main(projectRoot = process.cwd()) {
+  // In production, generate the key once and keep the private key off the
+  // machine being verified (sign the baseline in CI, publish the public key).
+  const keys = Attestium.signing.generateKeyPair();
 
-  // Initialize Attestium with default options
-  const attestium = new Attestium({
-    projectRoot: process.cwd(),
-    gitCommit: process.env.GIT_COMMIT || 'unknown',
-  });
-
-  console.log('📊 Generating comprehensive checksums...');
-  const checksums = await attestium.generateComprehensiveChecksums();
-
-  console.log(`✅ Generated checksums for ${checksums.files.length} files`);
-  console.log(`📅 Timestamp: ${checksums.timestamp}`);
-  console.log(`🔗 Git Commit: ${checksums.gitCommit || 'Not specified'}\n`);
-
-  // Show file categories
-  const categories = checksums.files.reduce((acc, file) => {
-    acc[file.category] = (acc[file.category] || 0) + 1;
-    return acc;
-  }, {});
-
-  console.log('📂 File Categories:');
-  for (const [category, count] of Object.entries(categories)) {
-    console.log(`   ${category}: ${count} files`);
+  const attestium = new Attestium({projectRoot, signingKey: keys.privateKey, logger: {log() {}}});
+  const report = await attestium.generateVerificationReport();
+  console.log(`Hashed ${report.summary.verifiedFiles} files, tree digest ${report.digest.slice(0, 16)}...`);
+  for (const [category, count] of Object.entries(report.summary.categories)) {
+    console.log(`  ${category}: ${count}`);
   }
 
-  console.log('\n🔍 Verifying integrity...');
-  const results = await attestium.verifyIntegrity(checksums);
+  const baseline = await attestium.exportVerificationData();
+  console.log(`Baseline signed by key ${baseline.signature.keyId.slice(0, 16)}...`);
 
-  if (results.status === 'success') {
-    console.log('✅ All files verified successfully!');
-    console.log('🧪 Element of attestation: STABLE');
-  } else {
-    console.log(`❌ Verification ${results.status}: ${results.discrepancies.length} discrepancies found`);
-    console.log('🧪 Element of attestation: UNSTABLE');
-  }
-
-  // Generate human-readable report
-  const report = attestium.generateVerificationReport(results);
-  console.log('\n📋 Verification Summary:');
-  console.log(`   Total Files: ${report.summary.totalFiles}`);
-  console.log(`   Verified: ${report.verified ? 'Yes' : 'No'}`);
-  console.log(`   Discrepancies: ${report.summary.discrepancies}`);
-  console.log(`   Element State: ${report.verified ? 'STABLE' : 'UNSTABLE'}`);
-
-  console.log('\n🔬 Research References:');
-  console.log('   • Forward Email Technical Whitepaper: https://forwardemail.net/technical-whitepaper.pdf');
-  console.log('   • Mullvad System Transparency: https://mullvad.net/media/system-transparency-rev4.pdf');
+  const result = await attestium.compareWithBaseline(baseline, {publicKey: keys.publicKey});
+  console.log(result.valid
+    ? 'Tree matches the signed baseline.'
+    : `Mismatch: ${result.modified.length} modified, ${result.added.length} added, ${result.removed.length} removed`);
+  return result;
 }
 
-basicExample().catch(console.error);
+module.exports = main;
 
+if (require.main === module) {
+  main(process.argv[2]).catch(error => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}

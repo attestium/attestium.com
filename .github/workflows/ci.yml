@@ -12,74 +12,74 @@ permissions:
   contents: read
 
 jobs:
-  test:
-    name: Node.js ${{ matrix.node-version }} on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.x
+      - run: npm install -g pnpm@9
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec xo lib test examples
 
+  test:
+    name: Node.js ${{ matrix.node-version }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        node-version: [20.x, 22.x, 24.x]
-        os: [ubuntu-latest, windows-latest, macos-latest]
-
+        node-version: [18.x, 20.x, 22.x, 24.x]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ matrix.node-version }}
 
-      - name: Install pnpm
-        run: npm install -g pnpm
+      # A software TPM and tpm2-tools let the TPM and IMA tests run against
+      # a real TPM 2.0 implementation instead of mocks.
+      - name: Install swtpm, tpm2-tools and gpg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends swtpm swtpm-tools tpm2-tools gnupg openssl perl
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - run: npm install -g pnpm@9
+      - run: pnpm install --frozen-lockfile
 
-      - name: Lint
-        run: pnpm run lint
-
-      - name: Test
-        run: pnpm test
-
-      - name: Coverage
-        if: matrix.node-version == '22.x' && matrix.os == 'ubuntu-latest'
+      # c8 enforces 100% statement, branch, function and line coverage of lib/.
+      - name: Test with coverage
         run: pnpm run coverage
 
       - name: Upload coverage
-        if: matrix.node-version == '22.x' && matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
+        if: matrix.node-version == '22.x'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-report
           path: coverage/
 
       - name: Coveralls
-        if: matrix.node-version == '22.x' && matrix.os == 'ubuntu-latest'
-        uses: coverallsapp/github-action@v2
+        if: matrix.node-version == '22.x'
+        uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           file: coverage/lcov.info
 
   security:
-    name: Security audit
+    name: Dependency audit
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22.x
-
-      - name: Install pnpm
-        run: npm install -g pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Audit
-        run: pnpm audit --audit-level=moderate
-        continue-on-error: true
+      - run: npm install -g pnpm@9
+      - run: pnpm install --frozen-lockfile
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level=moderate

@@ -1,0 +1,19 @@
+Confidential computing samples
+
+These files are test data from Google's Go libraries for AMD SEV-SNP and
+Intel TDX guests, licensed under the Apache License, Version 2.0
+(https://www.apache.org/licenses/LICENSE-2.0):
+
+  snp.bin    an SEV-SNP attestation report (version 2, debug policy)
+             from https://github.com/google/go-sev-guest
+  vcek.der   the VCEK certificate that signed snp.bin
+             from https://github.com/google/go-sev-guest
+  tdx.dat    a TDX quote (version 4) with its PCK certificate chain
+             from https://github.com/google/go-tdx-guest
+
+Copyright Google LLC.  The files are unmodified.
+
+SHA-256:
+  377e6241d3b373ab1df80c0f96978594e7e21f4797dd6ea95e2957e1c1e26060  snp.bin
+  0d057f9b6e29a69eda9c0154b259567d291c1c08d73a11e9d31ace07c435b6d8  vcek.der
+  6dde5548bec99147fef832643301f113df99931547be26df8ac376c4eaa5b5a7  tdx.dat

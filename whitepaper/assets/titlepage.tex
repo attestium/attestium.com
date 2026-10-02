@@ -41,24 +41,15 @@
   \vspace{0.6em}
 
   % Subtitle
-  {\fontsize{14}{18}\selectfont The only 100\% open-source framework for verifiable,\\TPM-backed runtime integrity\par}
+  {\fontsize{14}{18}\selectfont An open-source framework for verifiable,\\hardware-backed runtime integrity\par}
 
   \vspace{1.5em}
 
   % Author block
   {\normalsize
-  Nicholas Baugh, Founder\\
   Forward Email LLC\\
-  nick@forwardemail.net\\
   \href{https://forwardemail.net}{https://forwardemail.net}\\
-  \href{https://github.com/attestium/attestium}{https://github.com/attestium/attestium}\par}
-
-  \vspace{1.5em}
-
-  % Dates
-  {\small
-  First Published: March 3, 2026\\
-  Last Revised: March 7, 2026\par}
+  \href{https://github.com/attestium/attestium.com}{https://github.com/attestium/attestium.com}\par}
 
   \vspace{1.5em}
 
@@ -71,9 +62,9 @@
   \begin{flushleft}
   \setlength{\parindent}{2em}
   \setlength{\parskip}{0.4em}
-  Recent high-profile supply chain attacks, from SolarWinds to the xz-utils backdoor, have exposed a fundamental flaw in modern software security: the gap between build-time security and runtime integrity. We have made significant strides in securing the software supply chain with frameworks like SLSA and tools like Sigstore. These are essential, but they only verify the integrity of software \textit{before} it is deployed.
+  Supply chain attacks such as the SolarWinds compromise and the xz-utils backdoor exposed the gap between build-time security and runtime integrity. Frameworks such as SLSA and tools such as Sigstore secure software up to the point of release; they do not show what a server runs after deployment.
 
-  This whitepaper introduces Attestium, an open-source framework we built to bridge this gap. Attestium provides continuous, verifiable runtime integrity for server-side applications by leveraging Trusted Platform Modules (TPMs) and a unique layered architecture. It offers a practical, scalable solution for achieving end-to-end trust, ensuring the code you run is the code you trust.
+  This whitepaper describes Attestium, an open-source library and evidence format for remote attestation of what a server runs. An attester on the server reports its files, installed packages, running processes, executables, libraries and containers; a verifier elsewhere compares each of them with a reference the operator does not control, such as the public commit, the artifacts a lockfile pins, a container image, an official release or a signed distribution archive, and reports any running code that no reference explains. The approach applies to any language and any binary. Where a TPM or a confidential virtual machine is available, the evidence is bound to hardware-signed statements, and every result states which level of evidence it reached. The result is continuous, independent verification that the code running in production is the code that was published.
   \end{flushleft}
 
   \vfill

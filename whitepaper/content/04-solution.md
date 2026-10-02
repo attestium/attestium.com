@@ -1,54 +1,69 @@
 # The Solution
 
-We designed Attestium as a layered, practical, and open-source solution for verifiable runtime integrity. It is not a monolithic system but a modular stack that can be adapted to different environments and needs. Attestium addresses the gaps in existing solutions by providing:
+Attestium is a set of small modules that together produce and appraise evidence of what a machine runs. It is organized around six principles.
 
-* **Runtime Code Verification**: Continuous monitoring of running application code, real-time detection of unauthorized modifications, and in-memory integrity checking capabilities.
+1. **The attester reports; the verifier judges.** Nothing collected on the audited machine includes a verdict. The machine reports hashes, paths, process state and hardware statements; pass and fail are decided elsewhere.
 
-* **Process Memory Integrity**: Direct inspection of process memory maps, executable page hashing against on-disk binaries, detection of library injection (`LD_PRELOAD`, `DYLD_INSERT_LIBRARIES`, `AppInit_DLLs`), debugger attachment monitoring, and file descriptor analysis for fileless malware indicators.
+2. **Every fact is compared with a reference the operator does not control.** A deployed file is compared with the public commit, a reproduced build, or an attested release. An installed package is compared with the registry artifact whose hash the lockfile at that commit pins. A running binary is compared with an official release, a signed checksum list, a container image fetched by digest, or the package that owns it in the distribution's signed archive.
 
-* **Three-Way Release Verification**: Verification that the running binary matches the file on disk, that the file on disk matches the official upstream release (via SHASUMS for Node.js, integrity hashes for npm packages), and that the published npm version was built from the expected GitHub source commit.
+3. **Every running executable and library must be explained.** The verifier does not stop at the application's directory. Every file that an inspected process runs or maps executable is matched with a reference, and a file that no reference explains is reported.
 
-* **Third-Party Verification APIs**: RESTful APIs for external verification, nonce-based challenge-response protocols, and cryptographically signed verification reports.
+4. **Hardware binds the evidence when it is available.** A TPM quote or a confidential VM report binds the verifier's nonce and a digest of the whole evidence. Each result states which level of evidence it reached (Section 5).
 
-* **Developer-Friendly Design**: A simple npm package installation, minimal configuration requirements, and seamless integration with existing Node.js applications.
+5. **Incomplete is never passing.** A check that could not run, a reference that could not be fetched, or a package whose reference cannot exist makes the result inconclusive or unverifiable, never passing.
 
-* **Granular File Categorization**: Intelligent categorization of source code, tests, configuration, and dependencies, with customizable include/exclude patterns and Git integration for baseline establishment.
+6. **The format is open.** Evidence follows a published specification and JSON Schema, independent of language and transport, so attesters and verifiers written in other languages interoperate.
 
-* **Cryptographic Proof Generation**: SHA-256 checksums for all monitored files, signed verification reports, and tamper-evident audit trails.
+## Components
 
-* **Modern Workflow Integration**: Git commit hash tracking, CI/CD pipeline integration, and Cosmiconfig-based configuration management.
+* **Evidence format, version 2**: A JSON document with services, processes, executables, libraries, installed packages, an optional record of what ran between audits, and optional TPM, IMA and confidential VM statements, all covered by a canonical digest (Section 4.2).
 
-## The Attestium Stack
+* **Process integrity and runtime profiles**: The executable pages of every file-backed mapping compared byte for byte with the file, memory map anomalies, dynamic linker injection, tracers, `memfd` payloads and listening sockets, plus the code-injection vectors and debug ports of Node.js, Python, the JVM, Ruby, .NET, Erlang/Elixir, PHP, Perl, Deno and Bun.
 
-Our architecture consists of three layers:
+* **Package ecosystems**: Installed packages of npm, PyPI, RubyGems, Hex, Composer, Maven and NuGet compared file by file with the artifacts their lockfiles pin; the dependencies compiled into Go and Rust binaries compared with `go.sum` and `Cargo.lock`.
 
-1. **[Attestium](https://github.com/attestium/attestium) (Core Engine)**: A Node.js library that provides the low-level primitives for verification. It interacts with the TPM for hardware-backed attestation and provides APIs for measuring running processes, file integrity, process memory integrity, and release provenance. It exports three subpath modules: the main `attestium` class for file-level verification and TPM, `attestium/process-integrity` for memory-level analysis, and `attestium/release-verification` for upstream provenance checks.
+* **Release references**: Official Node.js releases, release manifests with GitHub artifact attestations [@github_attestations], npm provenance, Sigstore bundle verification with a TUF client for Sigstore's trust root [@tuf_spec], and checksum lists signed with OpenPGP, minisign or Sigstore.
 
-2. **[Audit Status](https://github.com/auditstatus/auditstatus) (Monitoring Tool)**: A command-line tool that uses Attestium to perform periodic server checks. It's a single, self-contained binary that can be easily deployed and configured via a simple YAML file. It orchestrates all of Attestium's verification primitives—including the new process memory and release checks—into a unified audit report.
+* **Operating system packages**: The owner of each executable and library in the dpkg database, checked against the Debian or Ubuntu archive through its signed `InRelease` file [@debian_secureapt].
 
-3. **[Upptime](https://github.com/upptime/upptime) (Uptime Monitor)**: We extended this popular open-source uptime monitor with a new `ssh-audit` check. It connects to a remote server, runs Audit Status, and parses the results, enabling continuous, third-party verifiable attestation.
+* **Containers**: The image, mounts, writable layer and root filesystem of each container, compared with the image fetched from its registry by digest [@oci_image_spec].
+
+* **Hardware attestation**: TPM 2.0 quotes and endorsement key enrollment, replay of the Linux IMA measurement log [@ima_sailer], and AMD SEV-SNP and Intel TDX reports obtained through configfs-tsm [@configfs_tsm], all verified in pure JavaScript on the verifier.
+
+* **Monitor**: An eBPF program that records every program executed, and every file mapped executable, between two audits.
+
+## The Stack
+
+The system has three parts, each with a separate purpose:
+
+1. **[Attestium](https://github.com/attestium/attestium.com) (library and format)**: The evidence format and the primitives to collect and appraise each part of it. It makes no decisions about policy and runs no network service.
+
+2. **[Audit Status](https://github.com/auditstatus/auditstatus.com) (attester and verifier)**: A single executable built on Attestium. On a server it collects evidence (`auditstatus ssh` behind a restricted SSH key, or `auditstatus serve` on the loopback interface of a Kubernetes pod). Elsewhere it verifies that evidence against public references (`auditstatus verify`) and writes reports and a badge.
+
+3. **Publication**: A scheduled job, typically a GitHub Actions workflow in a public repository, runs the verifier, commits its reports, opens an issue when a server does not pass, and serves a badge that a status page displays.
 
 ## Why GitHub Actions
 
-A key design decision was how to orchestrate these checks without introducing a new processor or subprocessor into our data pipeline. We already trust GitHub — our source code lives there, our CI runs there, and our team authenticates through it every day. Adding another third-party service just to run periodic integrity checks would mean onboarding a new vendor, negotiating a new DPA, and expanding our attack surface for no good reason.
+Running the verifier in a public repository's Actions adds no new processor to a service's data pipeline: most open-source projects already trust GitHub with their source code and CI. The workflow definition, its logs and every committed result are public, so anyone can read what was checked and when, and can rerun the same verifier against the same references.
 
-That's why we built the orchestration layer on top of GitHub Actions via [Upptime](https://github.com/upptime/upptime). Upptime runs as a scheduled GitHub Actions workflow — no additional infrastructure, no new credentials to manage, and no new trust relationships to establish. The checks run in GitHub's environment, and the results are committed directly to the repository as structured data.
-
-But this approach isn't limited to Upptime or even GitHub. The same pattern works with any task runner or CI/CD system. You could wire up the same `auditstatus check --json` command in a plain GitHub Actions workflow file, a GitLab CI pipeline, a Jenkins job, or even a simple cron job on a bastion host. The Audit Status binary is self-contained and stateless — it takes CLI flags, runs its checks, and outputs JSON. That makes it trivially composable with whatever orchestration you already have in place.
+The pattern is not tied to GitHub. `auditstatus verify` is a stateless command that reads a configuration file and writes `report.json`, `report.md` and a Shields.io endpoint badge. It runs the same way in any CI system or on a separate host. The Audit Status GitHub Action wraps it with optional publication to a branch, an issue that opens when the audit stops passing and closes when it passes again, and a configurable failure threshold.
 
 ## The Verification Flow
 
-Our verification flow follows the IETF RATS architecture (RFC 9334)[^rats]. Upptime acts as the Relying Party, initiating an attestation request. The ssh-audit helper acts as the Verifier, connecting to the remote server and executing Audit Status, the Attester. Audit Status collects evidence from the system (TPM, /proc, filesystem, process memory, upstream release hashes), generates a report, and sends it back up the chain.
+The flow follows the RATS roles [@rats]. The verifier generates a random nonce and asks the attester for evidence over one of two transports: an SSH key whose `authorized_keys` entry forces the attester command, or a Kubernetes port-forward to an attester that listens only on its pod's loopback interface. The attester collects evidence, computes its digest, and asks the hardware to bind the nonce and the digest:
+
+* TPM 2.0 quote, qualifying data: `SHA-256(nonce || evidenceDigest)`
+* Confidential VM report, report data: `SHA-512(nonce || evidenceDigest)`
+
+The verifier checks the evidence against the schema, the nonce, the time window and the recomputed digest, verifies the hardware statements with keys it pinned or vendor roots it ships, and appraises every fact against references it fetches itself.
 
 ```{.mermaid format=pdf}
 graph LR
-    A["Relying Party<br/>(Upptime)"] -->|1. Request| B["Verifier<br/>(SSH Client)"]
-    B -->|2. SSH| C["Attester<br/>(Audit Status)"]
-    C -->|3. Collect| D["/proc, TPM, FS,<br/>Memory, Upstream"]
-    C -->|4. Report| B
-    B -->|5. Result| A
+    V["Verifier<br/>(auditstatus verify)"] -->|1. nonce<br/>SSH or port-forward| A["Attester<br/>(auditstatus ssh / serve)"]
+    A -->|2. collect| E["files, /proc, packages,<br/>containers, TPM, IMA,<br/>SEV-SNP / TDX, monitor"]
+    A -->|3. evidence + digest<br/>+ hardware statements| V
+    V -->|4. fetch references| R["commit, build, registries,<br/>images, releases,<br/>distribution archive"]
+    V -->|5. attestation result| P["Relying parties<br/>(reports, badge,<br/>status page)"]
 ```
 
-This architecture provides a clean separation of concerns and a secure, flexible flow for remote verification. In the following sections, we will explore each layer in greater detail.
-
-[^rats]: H. Birkholz, et al., "Remote Attestation Procedures Architecture," IETF RFC 9334, 2022: [https://datatracker.ietf.org/doc/rfc9334/](https://datatracker.ietf.org/doc/rfc9334/)
+The server never decides whether it passed. It reports what it sees; the verdict comes from another machine, using references the server's operator does not control.

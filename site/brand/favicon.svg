@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="t"><title id="t">Attestium</title>
+  <style>.at-tile{fill:var(--attestium-tile, #11263E);stroke:var(--attestium-line, #73BCA6)}.at-glyph{fill:var(--attestium-glyph, #7FE3C0)}.at-glyph-line{fill:none;stroke:var(--attestium-glyph, #7FE3C0)}</style>
+  <rect class="at-tile" x="4" y="4" width="120" height="120" rx="14" stroke-width="8"/>
+  <path class="at-glyph" d="M17.09 92.01V86.22H25.82H27.84H37.58V92.01ZM21.45 92.01 41.45 35.99H52.37L72.78 92.01H60.01L43.55 43.71H42.12L38.84 59.34L28.09 92.01ZM31.53 75.55V70.17H58.67V75.55ZM49.93 92.01V86.22H61.19H66.48H77.57V92.01ZM93.53 55.39V49.59H109.65V55.39ZM99.99 92.94Q94.45 92.94 91.09 89.91Q87.73 86.89 87.73 80.34Q87.73 78.66 87.73 76.98Q87.73 75.3 87.73 73.7V55.39H80.84V50.6L91.43 49.26L88.15 51.78L92.52 37.5H99.41L98.06 52.7H98.73V79.67Q98.73 82.94 100.2 84.29Q101.67 85.63 104.36 85.63Q105.96 85.63 107.13 85.29Q108.31 84.96 108.98 84.71L110.91 89.41Q110.24 89.91 108.77 90.75Q107.3 91.59 105.08 92.27Q102.85 92.94 99.99 92.94Z"/>
+</svg>

@@ -1,22 +1,45 @@
 # Adoption
 
-We built Attestium not just for ourselves, but for the entire open-source community. We believe that verifiable runtime integrity is a fundamental building block for a more secure and trustworthy internet. This section outlines our own adoption, our vision for community adoption, and the critical security problems this framework solves for open-source companies.
+Attestium is intended for any service whose users should be able to check that it runs its published open-source code. This section describes the reference deployment at Forward Email, how other services adopt the same approach whatever their language and platform, and the insider threat that motivates it.
 
-## Live Transparency at [Forward Email](https://github.com/forwardemail/forwardemail.net)
+## Reference Adopter: [Forward Email](https://github.com/forwardemail/forwardemail.net)
 
-We practice what we preach. At [Forward Email](https://forwardemail.net), we use the full [Attestium](https://github.com/attestium/attestium), [Audit Status](https://github.com/auditstatus/auditstatus), and [Upptime](https://github.com/upptime/upptime) stack to continuously monitor the integrity of our production servers. We have made our real-time audit results public for anyone to inspect at any time:
+[Forward Email](https://forwardemail.net) is an open-source email service. Its production servers (web, API, IMAP, POP3, SMTP, MX, CalDAV, CardDAV, job processing and SQLite storage) run Node.js applications from its public repository. Each server is deployed from git: a deploy checks out the commit, installs dependencies with the pnpm version the repository pins and a frozen lockfile, builds the browser assets and the Sieve parser, and reloads the PM2 processes. The results are published at:
 
 > **[https://status.forwardemail.net](https://status.forwardemail.net)**
 
-This status page is not just a simple uptime monitor; it is a live feed of our server integrity checks. When [Upptime](https://github.com/upptime/upptime) runs an `ssh-audit` check, it executes the [Audit Status](https://github.com/auditstatus/auditstatus) binary on our servers, which in turn uses [Attestium](https://github.com/attestium/attestium) to perform TPM-backed cryptographic verification of our entire runtime environment—including process memory integrity and three-way release verification. The results are pushed to our public status page, providing a transparent, third-party verifiable record of our production state.
+The verification is configured in the public [status repository](https://github.com/forwardemail/status.forwardemail.net):
 
-If a check fails—whether due to a file mismatch, an unexpected process, a memory integrity anomaly, a supply chain provenance failure, or a TPM attestation failure—our team is immediately alerted via text messages and other notifications, allowing us to investigate and respond within minutes. This is not a theoretical exercise; it is a live, production-grade security system that we rely on every day.
+* The **attester** is installed on each server by an Ansible playbook, as a dedicated account whose SSH key is restricted to the attester command. The same playbook writes the servers' host keys into the status repository, where the verifier pins them, and can enroll each server's TPM.
+* The **verifier** runs hourly in a GitHub Actions workflow of the status repository. It pins the Audit Status release by its SHA-256 and compares each server with the public `forwardemail.net` repository at the reported commit, the commit's lockfile and the npm tarballs it pins, the official Node.js release, and the global npm, pnpm and PM2 packages.
+* Files the deployment generates and the repository ignores (the browser build and the generated Sieve parser) are compared with a build of the same commit that the verifier runs itself.
+* PM2's `node_args` and every process's runtime injection vectors are checked, and a server whose deployment is in progress is collected again after ten minutes before a result is reported.
+* The workflow commits a JSON and a Markdown report for every run, so the repository's history is a public record of the production state, and the badge on the status page reflects the latest result. When a server fails or the result is inconclusive, the workflow opens an issue in the status repository.
+
+A result for a server without an enrolled TPM is at the `software` level, and the published report says so. Anyone can read the same reports the Forward Email team reads.
+
+## How Other Services Adopt
+
+Adoption follows the same steps for any service:
+
+1. **Describe the service.** `auditstatus init` inspects the repository, detects its languages, package managers and container build, and writes a verifier configuration, an attester configuration and a scheduled workflow.
+2. **Install the attester.** On servers, with the Ansible role or the release binary and a restricted SSH key; on Kubernetes, with the Helm chart, which runs the attester as a DaemonSet and creates a service account that can only port-forward to it.
+3. **Enroll hardware.** Run TPM enrollment for each server, or pin the expected launch measurements of confidential VMs. This step is optional, but it determines the level of evidence a result can reach.
+4. **Check the setup.** `auditstatus doctor` confirms, on each side, that every check can run: permissions, processes, ecosystems, containers, TPM, IMA, confidential VM, monitor, and access to every reference.
+5. **Publish.** Run the verifier on a schedule in a public repository and link the badge from the service's status page.
+
+How each part of a service is verified depends on how it is built and deployed, not on its language:
+
+* **Interpreted services deployed from git** (JavaScript, Python, Ruby, PHP, Elixir): the source is compared with the commit, installed packages with the lockfile's artifacts, generated files with a reproduced build, and the interpreter with its official release or distribution package.
+* **Compiled services** (Go, Rust, Java, .NET): the binary is compared with an attested release manifest, a signed checksum list or a reproduced build; the dependencies compiled into Go and Rust binaries are compared with `go.sum` and `Cargo.lock`; jars and .NET assemblies from registries with the hashes their builds pin.
+* **Containers**: every file of each container is compared with its image, fetched by digest, optionally required to be attested by the project's own workflow.
+* **Third-party software**: databases, proxies and other programs installed from the distribution are explained by the distribution's signed archive; others by a signed checksum list or a pinned hash.
+
+Consider a hosted database platform similar to Supabase, whose open-source stack combines a PostgreSQL database with services written in TypeScript, Go and Elixir, often run as containers. Its PostgreSQL binaries and extensions are explained by their distribution packages or by the image they ship in; its container images by digest and by the attestations of the workflows that built them; its Go services by the build information checked against `go.sum` and by an attested binary hash; its Elixir services by the Hex packages `mix.lock` pins and a reproduced release build; and every process's runtime injection vectors are checked whatever its language. With confidential VMs, the platform can additionally show that its hosting provider cannot read or modify customer data in memory.
 
 ## A Call to the Open-Source Community
 
-We strongly encourage other open-source companies to adopt this framework. The modern software landscape is built on trust, but that trust is increasingly under attack. High-profile supply chain attacks have demonstrated that build-time security is not enough. We need to be able to verify the integrity of our software *as it runs*—not just the files on disk, but the actual bytes executing in process memory, and the provenance of every dependency back to its upstream source.
-
-This is especially critical for companies that are building the next generation of open-source infrastructure and services. We have identified several companies that we believe would be ideal candidates for adopting Attestium, as their business models are built on providing trustworthy, transparent, and secure services. For each, we have included their website, primary GitHub repository, and the main programming languages they use:
+Many companies build their business on open-source services and ask users to trust that the hosted version is the published one. The following projects publish their source and would be natural candidates; for each, the website, primary repository and main languages are listed:
 
 * **Supabase** ([supabase.com](https://supabase.com)) - [github.com/supabase/supabase](https://github.com/supabase/supabase) (TypeScript, Go)
 * **Cal.com** ([cal.com](https://cal.com)) - [github.com/calcom/cal.com](https://github.com/calcom/cal.com) (TypeScript)
@@ -31,18 +54,18 @@ This is especially critical for companies that are building the next generation 
 * **PostHog** ([posthog.com](https://posthog.com)) - [github.com/PostHog/posthog](https://github.com/PostHog/posthog) (Python, TypeScript)
 * **Chatwoot** ([chatwoot.com](https://www.chatwoot.com)) - [github.com/chatwoot/chatwoot](https://github.com/chatwoot/chatwoot) (Ruby, Vue, JavaScript)
 * **Twenty** ([twenty.com](https://twenty.com)) - [github.com/twentyhq/twenty](https://github.com/twentyhq/twenty) (TypeScript)
-* **Gitea** ([gitea.io](https://gitea.io)) - [github.com/go-gitea/gitea](https://github.com/go-gitea/gitea) (Go, TypeScript)
+* **Gitea** ([about.gitea.com](https://about.gitea.com)) - [github.com/go-gitea/gitea](https://github.com/go-gitea/gitea) (Go, TypeScript)
 * **Rocket.Chat** ([rocket.chat](https://www.rocket.chat)) - [github.com/RocketChat/Rocket.Chat](https://github.com/RocketChat/Rocket.Chat) (TypeScript)
 * **Plane** ([plane.so](https://plane.so)) - [github.com/makeplane/plane](https://github.com/makeplane/plane) (TypeScript, Python)
 
-By adopting a framework like Attestium, these companies can provide a new level of assurance to their users, customers, and enterprise clients. They can prove, with cryptographic certainty, that the code running on their servers is the exact same code that is in their public repositories—unmodified and uncompromised, from source to registry to disk to memory.
+These projects span JavaScript and TypeScript, Go, Python, Ruby and Elixir, each of which Attestium covers. By publishing continuous, independently checkable results, such a service can show its users that the code on its servers matches its public repository and the releases it depends on, and, with a TPM and IMA or a confidential VM, that this holds even against someone with root access to the server or the host.
 
 ## Preventing the Insider Threat
 
-While external threats get the most attention, the insider threat remains one of the most difficult to mitigate. A rogue employee, a compromised third-party vendor, or even a datacenter technician with physical access to a server (an "evil-maid" attack) can bypass traditional security measures and inject malicious code directly into a running application.
+External attacks receive the most attention, but insiders are among the hardest threats to mitigate. An employee acting in bad faith, a compromised vendor, or a datacenter technician with physical access to a server can bypass many controls and change what a service runs.
 
-This is not a theoretical risk. With SSH access, a malicious actor can easily modify application files, install backdoors, or alter dependencies. More sophisticated attackers can operate entirely in memory—using `LD_PRELOAD` to hijack shared library calls, `ptrace` to inject code into running processes, or `memfd_create` to execute payloads that never touch the filesystem. These techniques leave no trace in traditional file integrity monitoring.
+With shell access, such a person can modify application files, install backdoors or alter dependencies. With more skill, they can work entirely in memory: `LD_PRELOAD` to hijack library calls, `ptrace` to inject code into running processes, a runtime's own loading options, or `memfd_create` to execute payloads that never touch the filesystem. File integrity monitoring does not see these.
 
-Attestium is designed to defeat this entire class of attacks. It hashes the entire project directory and verifies the integrity of running processes against their on-disk binaries at the file level. It reads executable memory pages directly from `/proc/<pid>/mem` and compares them byte-for-byte against the on-disk binary to detect in-memory injection. It inspects process environments for `LD_PRELOAD` and checks `TracerPid` for debugger attachment. It scans file descriptors for `memfd_create` payloads. And it verifies the provenance of every installed dependency back to its upstream source, detecting supply chain attacks where a compromised insider publishes a malicious version to npm.
+Attestium targets this class of changes. It compares the deployed files with the public commit and the installed packages with the artifacts the lockfile pins; it compares the executable pages of every mapped file with the file on disk; it explains every running executable and library by a public reference; and it reports preloads, runtime injection options, debuggers, inspectors and `memfd` payloads.
 
-This provides a powerful layer of defense, not just for end-users, but for the entire team. It ensures that even with privileged access, no single individual can compromise the integrity of the production environment without being detected—whether they modify files on disk, inject code into memory, hijack the dynamic linker, or publish a poisoned package. It builds a culture of trust and accountability, backed by cryptographic proof at every layer of the stack.
+This raises the bar for everyone with access, including the operator. Careless or casual changes appear in the next public report. A determined insider with root can defeat software-only evidence, which is why the strongest results come from hardware: with IMA, the kernel records what was loaded before the insider can intervene, and the TPM will not sign a history that was edited afterwards; with a confidential VM, the host's operators cannot read or change the guest's memory at all.
