@@ -8,13 +8,13 @@ Attestium is intended for any service whose users should be able to check that i
 
 > **[https://status.forwardemail.net](https://status.forwardemail.net)**
 
-The verification is configured in the public [status repository](https://github.com/forwardemail/status.forwardemail.net):
+The verification is the first project of the Audit Status [public registry](https://github.com/auditstatus/auditstatus/blob/main/registry/forwardemail.yml), which verifies registered services as a third party:
 
-* The **attester** is installed on each server by an Ansible playbook, as a dedicated account whose SSH key is restricted to the attester command. The same playbook writes the servers' host keys into the status repository, where the verifier pins them, and can enroll each server's TPM.
-* The **verifier** runs hourly in a GitHub Actions workflow of the status repository. It pins the Audit Status release by its SHA-256 and compares each server with the public `forwardemail.net` repository at the reported commit, the commit's lockfile and the npm tarballs it pins, the official Node.js release, and the global npm, pnpm and PM2 packages.
-* Files the deployment generates and the repository ignores (the browser build and the generated Sieve parser) are compared with a build of the same commit that the verifier runs itself.
-* PM2's `node_args` and every process's runtime injection vectors are checked, and a server whose deployment is in progress is collected again after ten minutes before a result is reported.
-* The workflow commits a JSON and a Markdown report for every run, so the repository's history is a public record of the production state, and the badge on the status page reflects the latest result. When a server fails or the result is inconclusive, the workflow opens an issue in the status repository.
+* The **attester** is installed on each server by an Ansible playbook, as a dedicated account whose authorized keys are the registry's keys, restricted to the attester command. The same playbook records the servers' host keys, which the registry file pins, and can enroll each server's TPM.
+* The **verifier** runs hourly in Audit Status's own GitHub Actions workflow. Its SSH key was generated on a GitHub-hosted runner and exists only as a secret of that workflow's environment. It compares each server with the latest GitHub release of the public `forwardemail.net` repository, the release's lockfile and the npm tarballs it pins, with their build provenance, the official Node.js release, and the global npm, pnpm and PM2 packages.
+* Files the deployment generates and the repository ignores (the browser build and the generated Sieve parser) are compared with a build of the same commit that the registry reproduces in a separate job, without the SSH key, as an unprivileged account. The job that holds the key runs no code of the project.
+* PM2's `node_args` and every process's runtime injection vectors are checked. A server whose deployment is in progress is collected again after ten minutes, and within an hour of a new release a server that still runs the previous one is a warning.
+* The workflow publishes a JSON and a Markdown report for every run to the registry's `status` branch, signed with a GitHub artifact attestation, so the branch's history is a public record of the production state, and the badge on the status page reflects the latest result. When a server fails or the result is inconclusive, the workflow opens an issue in the Audit Status repository.
 
 A result for a server without an enrolled TPM is at the `software` level, and the published report says so. Anyone can read the same reports the Forward Email team reads.
 
@@ -26,7 +26,7 @@ Adoption follows the same steps for any service:
 2. **Install the attester.** On servers, with the Ansible role or the release binary and a restricted SSH key; on Kubernetes, with the Helm chart, which runs the attester as a DaemonSet and creates a service account that can only port-forward to it.
 3. **Enroll hardware.** Run TPM enrollment for each server, or pin the expected launch measurements of confidential VMs. This step is optional, but it determines the level of evidence a result can reach.
 4. **Check the setup.** `auditstatus doctor` confirms, on each side, that every check can run: permissions, processes, ecosystems, containers, TPM, IMA, confidential VM, monitor, and access to every reference.
-5. **Publish.** Run the verifier on a schedule in a public repository and link the badge from the service's status page.
+5. **Publish.** Add the service to the Audit Status public registry, which verifies it every hour from Audit Status's own workflow, or run the verifier on a schedule in a public repository of the service. Link the badge from the service's status page.
 
 How each part of a service is verified depends on how it is built and deployed, not on its language:
 

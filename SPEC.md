@@ -25,6 +25,10 @@ A verifier accepts evidence only if `nonce` equals the nonce it sent, `collected
 
 The nonce makes evidence fresh; `collectedAt` is the attester's clock. Nothing in software evidence identifies the machine: an attester can forward the nonce to another machine and return that machine's evidence. Only a hardware statement verified with a key pinned for that machine (a TPM attestation key) binds evidence to it. A confidential VM report identifies the launch image, not the instance.
 
+## Transport
+
+This format defines no transport, and no transport makes software evidence true: the attester runs on the audited machine, so whoever controls that machine controls what it reports, including the nonce and the digest. A transport decides only who may ask and which machine answered. Reach the attester through a channel that authenticates both ends and runs nothing but the attester, such as an SSH key restricted to the attester command (`restrict,command="..."`) with the machine's host key pinned by the verifier. Do not serve evidence on a network endpoint: it would show anyone who can reach it the machine's files, packages and processes, and the verifier would trust whatever certificate authority or proxy stands in front of it. Only hardware statements, verified as below, make a forged answer fail.
+
 ## Digest
 
 `evidenceDigest` is the lowercase hex SHA-256 of the canonical JSON encoding of the evidence object without the fields `evidenceDigest`, `tpm`, `ima` and `confidential`.
@@ -164,8 +168,11 @@ A verifier implementing this format must:
 *   check the nonce, the time window and the digest;
 *   verify hardware statements only with keys it pinned or chains to vendor roots it ships, never with keys taken from the evidence;
 *   pin a distinct attestation key for each machine, so that one machine cannot answer for another;
+*   decide from its own configuration which hardware statements each machine must provide, and fail when one is missing, rather than accept the lower level the evidence offers;
+*   compare the IMA measurements it authenticated with its references, not with the hashes the evidence reports, and report a service none of whose files were measured;
 *   obtain every reference itself, by digest where the reference is content-addressed;
-*   treat checks that could not complete as inconclusive, never as passing.
+*   treat checks that could not complete as inconclusive, never as passing;
+*   report the evidence level of every result, since software evidence can be forged by whoever controls the attester.
 
 ## Versioning
 

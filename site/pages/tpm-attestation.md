@@ -41,7 +41,7 @@ Supported: the binary log with the `ima-ng`, `ima-sig` and `ima-buf` templates, 
 | --- | --- | --- |
 | Software evidence only | Run a modified attester and report anything | Nothing is held against root |
 | TPM quote | Misreport files and processes after boot | Forge a quote, reset a PCR, answer for another machine, replay an old answer |
-| TPM and IMA | Misreport files outside the IMA policy | Remove IMA entries for files the kernel loaded |
+| TPM and IMA | Misreport files outside the IMA policy (with `tcb`, an interpreted service's scripts) | Remove IMA entries for files the kernel loaded |
 
 A compromised kernel or firmware can lie to everything above it. Boot measurements are designed to reveal a changed bootloader, kernel or firmware at boot when their expected values are pinned; a kernel exploited at run time is outside what any of this can see. See [Security model and limits](/docs/security/).
 
@@ -53,4 +53,4 @@ Many cloud providers offer virtual TPMs. A vTPM is operated by the hypervisor, s
 
 *   [Hardware-backed evidence](/docs/hardware/): the full API for TPM quotes, enrollment and IMA replay.
 *   [Remote attestation](/remote-attestation/): roles and the round trip.
-*   [Audit Status hardware evidence](https://auditstatus.com/docs/hardware/): enroll a server's TPM with one command.
+*   [Audit Status hardware evidence](https://auditstatus.github.io/auditstatus/docs/hardware/): enroll a server's TPM with one command.

@@ -349,7 +349,7 @@ declare namespace Attestium {
       policy?: Partial<PackagePolicy>;
       manifestProvider?: (item: InstalledPackage) => Promise<PackageManifest | null>;
       resolveFiles?: (item: InstalledPackage) => Promise<Record<string, string> | null>;
-    }): Promise<{passed: boolean; summary: Record<string, number>; findings: Array<Record<string, any>>}>;
+    }): Promise<{passed: boolean; summary: Record<string, number>; findings: Array<Record<string, any>>; files: Map<string, Record<string, string>>}>;
     verifyModules(): Promise<CheckResult>;
     verifyGlobalPackage(packageDir: string, options?: {node?: {version: string; platform: string; arch: string}}): Promise<CheckResult>;
     verifyAll(options?: {checkNode?: boolean; node?: {execPath?: string; version?: string; platform?: string; arch?: string}; globalDir?: string; globalPackages?: string[]; modules?: boolean}): Promise<{timestamp: string; platform: string; arch: string; nodeVersion: string; checks: Record<string, CheckResult>; passed: boolean; summary: string}>;

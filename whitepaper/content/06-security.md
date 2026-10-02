@@ -37,8 +37,8 @@ The same evidence, with a TPM quote over `SHA-256(nonce || evidenceDigest)` sign
 
 The kernel measures files as they are executed, mapped executable or read, according to its policy, and extends each measurement into PCR 10 before the file is used. The verifier replays the log to the quoted PCR 10.
 
-* **Proves**: that the measured files had the logged contents when the kernel loaded them, even against a hostile root user, because an entry cannot be removed from a PCR and the replay must match the signed value. The verifier compares the measurements of the service's files with the public commit, so a modified file that was loaded fails even if it was restored afterwards.
-* **Does not prove**: anything about files outside the IMA policy; anything the kernel did not measure (code injected into memory without a file, JIT-compiled code); or anything against a compromised kernel or firmware, which the boot measurements are meant to reveal only when their expected values are pinned. Currently the verifier uses the kernel's measurements for the service's own files; the other executables and libraries are still explained from the attester's report.
+* **Proves**: that the measured files had the logged contents when the kernel loaded them, even against a hostile root user, because an entry cannot be removed from a PCR and the replay must match the signed value. The verifier compares the measurements of the service's files with the public commit: a file whose last measurement differs fails, and earlier contents of the same path are reported even if the file was restored afterwards.
+* **Does not prove**: anything about files outside the IMA policy; anything the kernel did not measure (code injected into memory without a file, JIT-compiled code); or anything against a compromised kernel or firmware, which the boot measurements are meant to reveal only when their expected values are pinned. The verifier compares the kernel's measurements with the service's own files and with the hashes reported for each process's executables and libraries; other files, such as installed packages that no process maps, are still hashed by the attester.
 
 ### Confidential Virtual Machine
 
@@ -46,6 +46,40 @@ A SEV-SNP or TDX report with report data `SHA-512(nonce || evidenceDigest)`, sig
 
 * **Proves**: that the evidence came from a guest running on genuine AMD or Intel hardware with confidential computing enabled and debugging disabled, after the nonce was chosen, and that the guest's launch measurement is one the verifier pinned. The host operator, including a cloud provider, cannot read the guest's memory or forge the report.
 * **Does not prove**: anything beyond the launch measurement. The measurement covers the initial image (firmware and, depending on the setup, the kernel and initial RAM disk); what the guest loads later is reported by software inside the guest, whose root user controls it. For TDX, the platform's TCB level is reported but not evaluated against Intel's TCB information, so a platform with known but unpatched vulnerabilities is not rejected on that ground.
+
+## Forged Answers
+
+The verifier asks the attester for evidence over SSH, as a user whose key may run only the attester, with the server's host key pinned (or, on Kubernetes, through a port-forward to the pod's loopback interface, authenticated by the cluster). There is no HTTP endpoint: it would answer anyone who can reach it, rely on any public certificate authority, and could be answered by a proxy in front of the server. But no transport makes the answer true. Whoever controls the server can replace the attester with a program that returns what the verifier expects: it copies the verifier's nonce, hashes a clean copy of the published commit instead of the deployed files, sets `collectedAt` to the current time, and computes `evidenceDigest` over the forged document. Every software check passes. The nonce proves only that the answer was made after the nonce was chosen; the digest is a hash, not a signature, so anyone can compute it; a software signing key on the server can be read by root; a TLS certificate or SSH host key authenticates the machine, not the software that answers. A result backed only by software evidence therefore states that it holds only while the attester is honest.
+
+A forged answer fails only when part of it comes from something the forger cannot control. The diagram shows where a forgery fails when the server has a TPM with an enrolled key and IMA.
+
+```{.mermaid format=pdf}
+sequenceDiagram
+    participant V as Verifier (CI)
+    participant A as Attester (forged)
+    participant T as TPM
+    participant K as Kernel (IMA)
+    Note over V,A: pinned per server:<br/>AK public key, PCR 0-7 values
+    K->>T: extend PCR 10 with each file<br/>before it runs (modified code too)
+    V->>A: nonce (32 random bytes)
+    Note over A,T: evidence from a clean copy,<br/>digest over the forged document
+    A->>T: quote SHA-256(nonce || digest),<br/>PCR 0-7 and 10
+    T-->>A: quote signed by the AK
+    A->>V: forged evidence, quote, IMA log
+    Note over V,T: 1. signature with the pinned AK: ok, same machine<br/>2. quote data = SHA-256(nonce || digest): ok<br/>3. PCR 0-7 = pinned values: ok, expected boot<br/>4. IMA log replays to the quoted PCR 10: ok<br/>5. IMA hashes vs. references: FAIL
+```
+
+1. **The key cannot be copied.** The attestation key is created in the TPM as a restricted, non-exportable signing key, enrolled through the endorsement certificate and credential activation, and pinned per server. A quote from another machine, or a signature by a software key, fails.
+2. **The quote covers this nonce and this document.** Root can make the real TPM quote a forged document; that ties the forgery to this machine and this moment, and leaves its content to the next steps.
+3. **PCRs can be extended, never set.** A modified kernel or boot loader gives other PCR 0 to 7 values than the pinned ones.
+4. **The IMA log cannot be edited.** An entry removed or changed makes the replay differ from the quoted PCR 10.
+5. **Modified code leaves its hash.** The kernel measured the modified file before it ran. The forged evidence reports the commit's hash; the quoted log holds another, and the result fails. Files under the service's root are compared with the commit or the package's reference, never with the hashes the attester reports.
+
+This holds only for what the IMA policy measures, and the verifier cannot see the policy. The common `tcb` policy measures programs executed, files mapped executable and files read by root; the scripts of a Node.js, Python or Ruby service running as another user are read, not executed, and are never measured. The policy must also measure the service user's reads (`measure func=FILE_CHECK mask=^MAY_READ uid=<uid>`), by the reading user rather than the file's owner, since root can change an owner. The verifier reports a service under whose root nothing was measured, and fails it when IMA is required; the policy is bound to the boot measurements by loading it from the initramfs and pinning the PCRs that measure the initramfs and kernel command line.
+
+Relaying the nonce to an honest machine that runs the published code passes with software evidence, because nothing in it names the machine. It fails with a TPM quote when each server has its own pinned key. With a confidential VM, it passes when the honest guest was started from the same image, since the launch measurement identifies an image, not an instance.
+
+What remains possible against TPM and IMA is listed under each level above: code the IMA policy does not measure, code run from outside the service's root by a process the evidence leaves out (the IMA log does not say who read a file), facts no measurement covers (such as which processes run), and a compromised kernel or firmware. The verifier decides the required level for each server from its own configuration, never from the evidence, so a server that omits its quote fails instead of falling back to software evidence.
 
 ## What Each Reference Proves
 

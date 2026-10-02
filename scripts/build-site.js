@@ -49,7 +49,7 @@ const GUIDES = ['remote-attestation', 'tpm-attestation', 'supply-chain-verificat
 
 const NAV = [
   {group: 'Start', pages: [['docs/README.md', 'Overview'], ['docs/getting-started.md'], ['docs/concepts.md']]},
-  {group: 'Guides', pages: [['docs/ecosystems.md'], ['docs/hardware.md'], ['docs/signatures.md'], ['docs/other-languages.md'], ['docs/security.md']]},
+  {group: 'Guides', pages: [['docs/ecosystems.md'], ['docs/hardware.md'], ['docs/forged-answers.md'], ['docs/signatures.md'], ['docs/other-languages.md'], ['docs/security.md']]},
   {group: 'Reference', pages: [['docs/api.md', 'API reference'], ['SPEC.md', 'Specification']]},
 ];
 
@@ -566,7 +566,7 @@ ${brandLink()}
 ${list('f-docs', 'Documentation', [['/docs/getting-started/', 'Getting started'], ['/docs/concepts/', 'Concepts'], ['/docs/api/', 'API reference'], ['/spec/', 'Specification'], ['/faq/', 'FAQ']])}
 ${list('f-guides', 'Use cases', guides.map(g => [g.url, g.label]))}
 ${list('f-project', 'Project', [[SITE.repo, 'GitHub'], ['https://www.npmjs.com/package/attestium', 'npm'], ['/attestium-whitepaper.pdf', 'Whitepaper (PDF)'], ['/docs/security/#reporting-a-vulnerability', 'Security'], ['/brand/', 'Brand']])}
-${list('f-related', 'Related', [['https://auditstatus.com', 'Audit Status'], ['https://forwardemail.net', 'Forward Email'], ['https://status.forwardemail.net', 'Forward Email status']])}
+${list('f-related', 'Related', [['https://auditstatus.github.io/auditstatus/', 'Audit Status'], ['https://forwardemail.net', 'Forward Email'], ['https://status.forwardemail.net', 'Forward Email status']])}
 </div>
 </footer>`;
 }
@@ -706,7 +706,7 @@ ${sequenceDiagram()}
 <ol class="steps">
 ${steps}
 </ol>
-<figcaption>A replayed answer fails the nonce check, changed evidence fails the digest check, and evidence produced elsewhere fails the hardware check. <a href="/docs/concepts/#nonce-and-digest-binding">Nonce and digest binding</a></figcaption>
+<figcaption>A replayed answer fails the nonce check, changed evidence fails the digest check, and evidence produced elsewhere fails the hardware check. Without hardware, a server that controls its attester can forge the whole answer. <a href="/docs/concepts/#nonce-and-digest-binding">Nonce and digest binding</a> <a href="/docs/forged-answers/">Forged answers</a></figcaption>
 </figure>
 </div>
 </section>
@@ -742,7 +742,8 @@ ${levels}
 <div class="section-head">
 <h2 id="example-h">Example</h2>
 <p>An attester answers a nonce with evidence about a deployed directory. The verifier checks shape, nonce and digest, then compares every file with a checkout of the expected commit.</p>
-<p><a href="/docs/getting-started/#an-attester-and-a-verifier">Build an attester and a verifier</a></p>
+<p>On its own this is software evidence: whoever controls the attester can forge it. A TPM quote with a pinned key and IMA, or a confidential VM, makes a forgery fail.</p>
+<p><a href="/docs/getting-started/#an-attester-and-a-verifier">Build an attester and a verifier</a> <a href="/docs/forged-answers/">Forged answers</a></p>
 </div>
 ${example ? codeBlock(example[1], 'js', 'example.js') : ''}
 </div>
@@ -763,7 +764,7 @@ ${example ? codeBlock(example[1], 'js', 'example.js') : ''}
 <div>
 <h3>Audit Status</h3>
 <p>A ready-made tool built on Attestium: one binary with an attester, invoked over a restricted SSH key, and a verifier that runs in CI and publishes reports and a status badge.</p>
-<p><a href="https://auditstatus.com">auditstatus.com</a></p>
+<p><a href="https://auditstatus.github.io/auditstatus/">auditstatus.github.io/auditstatus</a></p>
 </div>
 </div>
 <div class="credit">
@@ -1110,7 +1111,7 @@ ${group('FAQ')}
 
 - [All documentation in one file](${SITE.url}/llms-full.txt): every page above, concatenated
 - [Whitepaper](${SITE.url}/attestium-whitepaper.pdf): architecture, security model and background (PDF)
-- [Audit Status](https://auditstatus.com/llms.txt): a ready-made attester and verifier built on Attestium
+- [Audit Status](https://auditstatus.github.io/auditstatus/llms.txt): a ready-made attester and verifier built on Attestium
 - [Source code](${SITE.repo}): the library, tests and examples
 `;
 }

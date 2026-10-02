@@ -59,7 +59,7 @@ A verifier must know that evidence is fresh and has not been changed. Attestium 
 
 The verifier checks that the nonce is its own, that `collectedAt` is inside its time window, and recomputes the digest. Then it checks the hardware statement with keys it trusts. A replayed answer fails the nonce check. Changed evidence fails the digest check. Evidence produced elsewhere fails the hardware check.
 
-Without hardware, the digest proves only that the evidence was not changed after the digest was computed. Anyone who controls the attester can compute a new digest. See [Evidence levels](#evidence-levels).
+Without hardware, the digest proves only that the evidence was not changed after the digest was computed. Anyone who controls the attester can compute a new digest over forged evidence. See [Evidence levels](#evidence-levels) and [Forged answers](forged-answers.md).
 
 ## Explaining every running file
 

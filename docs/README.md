@@ -13,6 +13,7 @@ The guides and reference for Attestium, the library for collecting and verifying
 *   [Hardware-backed evidence](hardware.md): TPM quotes and enrollment, IMA log replay, AMD SEV-SNP and Intel TDX reports, and how the nonce and digest are bound.
 *   [Signatures and trust](signatures.md): Sigstore bundles, GitHub artifact attestations, npm provenance, signed checksum lists, release manifests and pinned hashes.
 *   [Other languages](other-languages.md): implement a compatible attester or verifier from the specification, with canonical JSON rules and test vectors.
+*   [Forged answers](forged-answers.md): how a server can fake software evidence, with diagrams of where a forgery fails against a TPM, IMA and confidential VMs, and the rules a verifier must follow.
 *   [Security model and limits](security.md): threat model, root on the machine, code compiled at run time, software keys versus TPM keys, trust in references.
 
 ## Reference
@@ -24,4 +25,4 @@ The guides and reference for Attestium, the library for collecting and verifying
 
 ## Related
 
-*   [Audit Status](https://github.com/auditstatus/auditstatus.com): a ready-made attester and verifier built on Attestium, which publishes results to a status page.
+*   [Audit Status](https://github.com/auditstatus/auditstatus): a ready-made attester and verifier built on Attestium, which publishes results to a status page.

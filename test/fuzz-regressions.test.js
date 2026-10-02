@@ -31,7 +31,12 @@ test('comparePackages: a package matched by digest must carry the file list the 
   const honest = await compare([{...parent, files: manifest.files}, {...inside, files: child.files}]);
   assert.equal(honest.passed, true);
   assert.deepEqual(honest.summary.bundled, 1);
-  assert.equal((await compare([parent, inside])).passed, true);
+  // Without a file list, the reference's file hashes are returned for the
+  // package that matched by digest; a bundled one carries none.
+  const digestOnly = await compare([parent, inside]);
+  assert.equal(digestOnly.passed, true);
+  assert.deepEqual([...digestOnly.files], [['parent', manifest.files]]);
+  assert.deepEqual([...honest.files], [['parent', manifest.files]]);
 
   // A file list that adds a native module, or changes a file, while the
   // digest still matches: those files would be explained as verified.

@@ -17,7 +17,7 @@ Attestium is a Node.js library for remote attestation: proving that a server run
   <img src="https://forwardemail.net/img/logo-square.svg" width="100" alt="Forward Email">
 </a>
 
-**Attestium is a project by [Forward Email](https://forwardemail.net) – the 100% open-source, privacy-focused email service.** We use it, through [Audit Status](https://github.com/auditstatus/auditstatus.com), to publish verification results for our own production servers on [our status page](https://status.forwardemail.net).
+**Attestium is a project by [Forward Email](https://forwardemail.net) – the 100% open-source, privacy-focused email service.** We use it, through [Audit Status](https://github.com/auditstatus/auditstatus), to publish verification results for our own production servers on [our status page](https://status.forwardemail.net).
 
 Read the [technical whitepaper](./attestium-whitepaper.pdf) for the architecture, the security model, and what each kind of result does and does not prove.
 
@@ -35,10 +35,10 @@ Read the [technical whitepaper](./attestium-whitepaper.pdf) for the architecture
 
 ## Attestium and Audit Status
 
-Attestium and [Audit Status](https://github.com/auditstatus/auditstatus.com) serve different purposes:
+Attestium and [Audit Status](https://github.com/auditstatus/auditstatus) serve different purposes:
 
 *   **Attestium** is the library and the format. It gives you the pieces: collecting facts on a machine, the evidence format and its schema, and the checks against each kind of reference. Use it to build your own attester or verifier, to verify one thing (a TPM quote, a container image, a Sigstore bundle, a `node_modules` tree), or to implement the format in another language.
-*   **Audit Status** is a ready-made tool built on Attestium. It ships as a single binary with two roles: an attester that a verifier invokes over a restricted SSH key, and a verifier that runs in CI, checks the evidence, and publishes reports and a status badge. Use it when you want remote attestation of your servers without writing code.
+*   **Audit Status** is a ready-made tool built on Attestium. It ships as a single binary with two roles: an attester that a verifier invokes over a restricted SSH key, and a verifier that runs in CI, checks the evidence, and publishes reports and a status badge. Use it when you want remote attestation of your servers without writing code. Its [public registry](https://github.com/auditstatus/auditstatus/blob/main/docs/registry.md) verifies registered projects every hour from its own GitHub Actions: a project adds one YAML file and the registry's SSH key to its servers.
 
 ## Install
 
@@ -95,7 +95,9 @@ const {evidence, fileTree, util} = require('attestium');
 })();
 ```
 
-[Getting started](docs/getting-started.md) extends this into an attester and a verifier that talk over HTTP, inspect the service's processes, and account for every file those processes run.
+This example is software evidence: the attester could report anything, so it shows only that the files match while the attester is honest. [Forged answers](docs/forged-answers.md) shows how a server can fake its answer and what stops it.
+
+[Getting started](docs/getting-started.md) extends this into an attester and a verifier that talk over SSH (the verifier's key may run only the attester, and the server's host key is pinned), inspect the service's processes, and account for every file those processes run.
 
 ## What can be verified
 

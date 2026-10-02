@@ -1,23 +1,29 @@
-% Custom title page matching Forward Email whitepaper style
+% Title page and running headers in the Attestium brand (site/brand/)
 \usepackage{fontspec}
 \usepackage{graphicx}
 \usepackage{fancyhdr}
 \usepackage{lastpage}
+\usepackage{xcolor}
+
+% Brand colors (site/brand/): navy and mint
+\definecolor{atnavy}{HTML}{13202E}
+\definecolor{atmint}{HTML}{73BCA6}
 
 % Configure page headers: logo left, title right
 \pagestyle{fancy}
 \fancyhf{}
 \renewcommand{\headrulewidth}{0.4pt}
-\fancyhead[L]{\raisebox{-0.3\height}{\includegraphics[height=20pt]{assets/avatar.png}}}
-\fancyhead[R]{\small\textit{Attestium: A Framework for Verifiable Runtime Integrity}}
+\renewcommand{\headrule}{{\color{atmint}\hrule height\headrulewidth width\headwidth}}
+\fancyhead[L]{\raisebox{-0.3\height}{\includegraphics[height=16pt]{assets/mark.pdf}}}
+\fancyhead[R]{\small\color{atnavy}\textit{Attestium: A Framework for Verifiable Runtime Integrity}}
 \fancyfoot[C]{\thepage}
 
 % Apply fancy style to plain pages (first page of chapters, TOC, etc.)
 \fancypagestyle{plain}{%
   \fancyhf{}
   \renewcommand{\headrulewidth}{0.4pt}
-  \fancyhead[L]{\raisebox{-0.3\height}{\includegraphics[height=20pt]{assets/avatar.png}}}
-  \fancyhead[R]{\small\textit{Attestium: A Framework for Verifiable Runtime Integrity}}
+  \fancyhead[L]{\raisebox{-0.3\height}{\includegraphics[height=16pt]{assets/mark.pdf}}}
+  \fancyhead[R]{\small\color{atnavy}\textit{Attestium: A Framework for Verifiable Runtime Integrity}}
   \fancyfoot[C]{\thepage}
 }
 
@@ -29,15 +35,15 @@
 
   % Logo at the top of the title page
   \vspace*{0.3cm}
-  \includegraphics[width=2.5cm]{assets/avatar.png}
+  \includegraphics[width=8cm]{assets/logo.pdf}
 
   \vspace{0.8cm}
 
   % Title: "Attestium" bold, rest normal weight
-  {\fontsize{24}{28}\selectfont \textbf{Attestium:} A Framework for Verifiable Runtime Integrity\par}
+  {\color{atnavy}\fontsize{24}{28}\selectfont \textbf{Attestium:} A Framework for Verifiable Runtime Integrity\par}
 
   \vspace{0.6em}
-  \hrule
+  {\color{atmint}\hrule height 1pt}
   \vspace{0.6em}
 
   % Subtitle

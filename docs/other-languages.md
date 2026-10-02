@@ -138,12 +138,14 @@ A verifier must, in this order:
 4.  Check that `collectedAt` is inside your accepted window (allow a small clock skew into the future).
 5.  Recompute `evidenceDigest` and compare.
 6.  Verify hardware statements only with keys you pinned, or certificate chains that end at vendor roots you ship. For a TPM quote: the signature, the qualifying data, the PCR digest against the reported values, and your expected PCR values. When `tpm` or `confidential` says `required: true` and the statement is missing or has an `error`, fail.
-7.  When an IMA log is present and PCR 10 was quoted, replay the log to the quoted value; use only the entries up to the point where it matches.
+7.  When an IMA log is present and PCR 10 was quoted, replay the log to the quoted value; use only the entries up to the point where it matches. Compare those measurements with your references (the commit, the packages' reference files, the build), not with the hashes the evidence reports, and report a service under whose files nothing was measured: the IMA policy then does not cover it.
 8.  Obtain every reference yourself, by digest where it is content-addressed, and compare every fact: service files, installed packages, container files, and every executable, library and monitored file.
 9.  Treat every check that could not complete as inconclusive, never as passing: `incomplete` entries of a process, `truncated` lists, `errors`, `error` fields, references you could not fetch.
+10. Report the evidence level with every result. Software evidence is the attester's word: whoever controls the machine can forge it ([Forged answers](forged-answers.md)).
 
 ## Attester notes
 
+*   Answer only through an authenticated channel that runs nothing but the attester, such as an SSH forced command; never on a network endpoint.
 *   Read the nonce as hex, 16 to 64 bytes, and refuse anything else.
 *   Record `collectedAt` when collection starts, in ISO 8601 UTC with a `Z` (the schema's time format is `YYYY-MM-DDTHH:MM:SS[.fraction]Z`).
 *   Hash running executables through `/proc/<pid>/exe` and mapped files through `/proc/<pid>/root` when the process is in another mount namespace, so the hash is of the file the process uses.

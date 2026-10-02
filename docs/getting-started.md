@@ -1,6 +1,6 @@
 # Getting started
 
-Install Attestium, collect evidence about a directory and a running process on your own machine, check that evidence, and then build a minimal attester and verifier in Node.js that talk over HTTP and compare a deployed directory with a reference.
+Install Attestium, collect evidence about a directory and a running process on your own machine, check that evidence, and then build a minimal attester and verifier in Node.js that talk over SSH and compare a deployed directory with a reference.
 
 ## Install
 
@@ -83,11 +83,13 @@ console.log(evidence.evidenceDigest(document) === document.evidenceDigest); // f
 The example below has four files:
 
 *   `attester.js` collects evidence for one directory service: its files, the processes running from it, and the files those processes run and map.
-*   `attester-server.js` answers `GET /evidence?nonce=...` with that evidence.
+*   `attester-command.js` is the forced command of the verifier's SSH key: it answers `check <nonce>` with that evidence, and nothing else.
 *   `verifier.js` appraises evidence against a reference.
-*   `verify.js` sends a fresh nonce, fetches the evidence and prints the result.
+*   `verify.js` sends a fresh nonce over SSH, receives the evidence and prints the result.
 
-The deployed service lives in `./app`. The verifier's reference is `./reference`, a checkout of the commit that should be deployed.
+The deployed service lives in `/srv/app` on the server. The verifier's reference is `./reference` on the verifier, a checkout of the commit that should be deployed.
+
+The attester is reached only over SSH, never through an HTTP endpoint. Only the holder of the verifier's key can ask, the key can run nothing but the attester, and the server is identified by its host key pinned on the verifier. An HTTP endpoint would answer anyone who can reach it and show them the server's files and processes, and the verifier would have to trust whichever certificate authority, proxy or CDN stands in front of it.
 
 ### attester.js
 
@@ -198,32 +200,38 @@ module.exports = {collect};
 
 `util.normalizeNonce()` throws unless the nonce is 16 to 64 bytes of hex, so a malformed request never reaches the evidence. The digest is computed last, over everything collected.
 
-### attester-server.js
+### attester-command.js
 
 ```js
-// attester-server.js
-const http = require('node:http');
+// attester-command.js
 const {collect} = require('./attester');
 
-const server = http.createServer(async (request, response) => {
-  const url = new URL(request.url, 'http://localhost');
-  if (request.method !== 'GET' || url.pathname !== '/evidence') {
-    response.writeHead(404).end();
+(async () => {
+  // sshd puts the command the verifier asked for in SSH_ORIGINAL_COMMAND.
+  const match = /^check ([\da-f]+)$/.exec(process.env.SSH_ORIGINAL_COMMAND || '');
+  if (!match) {
+    console.error('Expected "check <nonce>"');
+    process.exitCode = 2;
     return;
   }
 
-  try {
-    const document = await collect(url.searchParams.get('nonce'), {name: 'app', root: './app'});
-    response.writeHead(200, {'content-type': 'application/json'}).end(JSON.stringify(document));
-  } catch (error) {
-    response.writeHead(400, {'content-type': 'application/json'}).end(JSON.stringify({error: error.message}));
-  }
+  const document = await collect(match[1], {name: 'app', root: '/srv/app'});
+  process.stdout.write(`${JSON.stringify(document)}\n`);
+})().catch(error => {
+  console.error(error.message);
+  process.exitCode = 1;
 });
-
-server.listen(7070, '127.0.0.1');
 ```
 
-In production, do not expose the attester to the network. Audit Status, for example, runs its attester as the forced command of a dedicated SSH key.
+On the server, create a user for the attester and give it the verifier's public key, restricted to this command (one line in `~attester/.ssh/authorized_keys`):
+
+```text
+restrict,command="node /opt/attester/attester-command.js" ssh-ed25519 AAAA... verifier
+```
+
+`restrict` turns off port, agent and X11 forwarding and terminals, and `command=` replaces whatever the verifier asks with the attester; the request reaches it only as `SSH_ORIGINAL_COMMAND`, which is parsed, never run. Inspecting the processes of another user needs privileges ([Security](security.md#inconclusive-is-not-passing)).
+
+SSH decides who may ask and which machine answered. It does not make the answer true: root on the server can put another program in this one's place that copies the nonce, reports a clean copy of the commit instead of `/srv/app`, and computes a matching digest, and every check in `verifier.js` below then passes. Software evidence holds only while the attester is honest. A result that holds against root needs a TPM quote with a pinned attestation key and IMA, or a confidential VM; [Forged answers](forged-answers.md) shows the forgery, where it fails, and the rules a verifier must follow.
 
 ### verifier.js
 
@@ -316,6 +324,7 @@ The order matters. Validate the shape first, so no later step reads a field of t
 
 ```js
 // verify.js
+const {spawnSync} = require('node:child_process');
 const {evidence, util} = require('attestium');
 const {appraise} = require('./verifier');
 
@@ -324,8 +333,24 @@ const {appraise} = require('./verifier');
   const manifest = await evidence.createManifest('./reference', {repository: 'example/app', commit: 'a'.repeat(40)});
 
   const nonce = util.generateNonce();
-  const response = await fetch(`http://127.0.0.1:7070/evidence?nonce=${nonce}`);
-  const document = await response.json();
+  // The verifier's own key, and the server's host key pinned in ./known_hosts:
+  // an unknown or changed host key fails instead of asking.
+  const ssh = spawnSync('ssh', [
+    '-F', 'none',
+    '-i', 'verifier_key',
+    '-o', 'IdentitiesOnly=yes',
+    '-o', 'BatchMode=yes',
+    '-o', 'StrictHostKeyChecking=yes',
+    '-o', 'UserKnownHostsFile=known_hosts',
+    '-o', 'ForwardAgent=no',
+    '-o', 'ClearAllForwardings=yes',
+    '-T', '--', 'attester@server.example.com', `check ${nonce}`,
+  ], {encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, timeout: 600_000});
+  if (ssh.status !== 0) {
+    throw new Error(`ssh failed: ${ssh.stderr || ssh.error}`);
+  }
+
+  const document = JSON.parse(ssh.stdout);
 
   const result = appraise(document, {nonce, service: 'app', manifest});
   console.log(result.status);
@@ -337,13 +362,22 @@ const {appraise} = require('./verifier');
 
 ### Run it
 
+On the verifier, once:
+
 ```sh
-(cd app && node server.js &)  # the service; its working directory is ./app
-node attester-server.js &     # the attester
-node verify.js                # the verifier
+ssh-keygen -t ed25519 -N '' -C verifier -f verifier_key     # verifier_key.pub goes into authorized_keys
+ssh-keyscan -t ed25519 server.example.com > known_hosts    # over a path you trust; compare the fingerprint
 ```
 
-The attester finds processes by their working directory. With `./app` equal to `./reference` and a process running from `./app`, the result is `inconclusive`: the files match, but the Node.js binary and the shared libraries it maps are not explained by any reference yet. Change a file in `./app` and the result is `fail`.
+Then, with the service running from `/srv/app` on the server:
+
+```sh
+node verify.js
+```
+
+The result is software evidence: it detects a changed file while the attester is honest, and proves nothing against whoever controls the attester (see [Forged answers](forged-answers.md#what-the-getting-started-example-proves)).
+
+The attester finds processes by their working directory. With `/srv/app` equal to `./reference` and a process running from `/srv/app`, the result is `inconclusive`: the files match, but the Node.js binary and the shared libraries it maps are not explained by any reference yet. Change a file in `/srv/app` and the result is `fail`.
 
 ## Explain the running files
 
@@ -365,6 +399,7 @@ Shared libraries from Debian or Ubuntu are explained by their package in the sig
 ## Next steps
 
 *   [Concepts](concepts.md): roles, references, binding, evidence levels.
+*   [Forged answers](forged-answers.md): why a server can fake software evidence, and what stops it.
 *   [Hardware](hardware.md): bind evidence to a TPM quote or a confidential VM report.
 *   [API reference](api.md): every module and function.
-*   [Audit Status](https://github.com/auditstatus/auditstatus.com) is a ready-made attester and verifier built on these modules.
+*   [Audit Status](https://github.com/auditstatus/auditstatus) is a ready-made attester and verifier built on these modules.

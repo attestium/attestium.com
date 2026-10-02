@@ -18,7 +18,7 @@ The attester never decides whether the machine passes. The verifier obtains ever
 
 **An attacker without root** (a remote code execution bug in the application, a stolen deploy key, a malicious dependency update) has to change what runs in a way the attester reports: a modified file, a package that differs from its tarball, a preload in `NODE_OPTIONS`, `LD_PRELOAD`, an open inspector, an attached debugger, a `memfd` payload, a new program that the monitor records. Software evidence detects these.
 
-**An attacker with root** on the checked machine controls the attester. They can run a modified attester, feed it false data, or answer the verifier with evidence from a clean copy. Software evidence cannot stop them. What holds:
+**An attacker with root** on the checked machine controls the attester. They can run a modified attester, feed it false data, or answer the verifier with evidence from a clean copy. Software evidence cannot stop them ([Forged answers](forged-answers.md) shows such a forgery step by step). What holds:
 
 *   A TPM quote binds the evidence to the enrolled machine and to its measured boot state. Root cannot forge a quote or reset a PCR.
 *   IMA, with the log replayed to the quoted PCR 10, shows the hashes of files the kernel loaded. Root cannot remove entries.
@@ -28,7 +28,7 @@ The attester never decides whether the machine passes. The verifier obtains ever
 
 **A malicious operator of the host** of a virtual machine can read and change the guest's memory, unless the guest is a confidential VM (AMD SEV-SNP, Intel TDX). Then the report proves the launch measurement and that debugging is off, signed by the CPU vendor's key.
 
-**An attacker on the network** between verifier and attester can replay or change evidence. The nonce and the digest stop replay and changes; hardware statements stop forgery. Use an authenticated transport anyway (Audit Status uses SSH with a forced command).
+**An attacker on the network** between verifier and attester can replay, change or answer in place of the server. The nonce stops replay; hardware statements stop forgery. Without hardware, only the transport stops the rest: reach the attester over SSH, with the verifier's key restricted to the attester command and the server's host key pinned, not through an HTTP endpoint, which answers anyone, depends on any public CA, and can be answered by a proxy in front of the server ([Forged answers](forged-answers.md#why-ssh-and-no-http-endpoint)).
 
 ## Root on the machine
 

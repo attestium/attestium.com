@@ -15,7 +15,7 @@ Remote attestation lets a verifier check what another machine runs without trust
 
 ## Is Attestium a library or a tool?
 
-A library and a format. It provides the pieces to collect facts on a machine, the evidence format and its schema, and the checks against each kind of reference. [Audit Status](https://auditstatus.com) is a ready-made tool built on it, with an attester binary, a verifier for CI and published reports.
+A library and a format. It provides the pieces to collect facts on a machine, the evidence format and its schema, and the checks against each kind of reference. [Audit Status](https://auditstatus.github.io/auditstatus/) is a ready-made tool built on it, with an attester binary, a verifier for CI and published reports.
 
 ## Does it need a TPM?
 
@@ -39,7 +39,11 @@ Yes. For a process in a container, the attester reports the container, the image
 
 ## What can root on the server hide?
 
-With software evidence only, root controls the attester and can report anything. A TPM quote stops root from forging which machine answered or replaying an old answer, but not from misreporting files after boot. With IMA, root cannot remove the kernel's measurements of files it loaded. State the evidence level with every result. See [Security model and limits](/docs/security/).
+With software evidence only, root controls the attester and can report anything. A TPM quote stops root from forging which machine answered or replaying an old answer, but not from misreporting files after boot. With IMA, root cannot remove the kernel's measurements of files it loaded, as far as the IMA policy measures them; the common `tcb` policy does not measure the scripts of an interpreted service. State the evidence level with every result. See [Forged answers](/docs/forged-answers/) and [Security model and limits](/docs/security/).
+
+## Why SSH and not an HTTP endpoint?
+
+An HTTP endpoint answers anyone who can reach it, shows them the server's files and processes, relies on any public certificate authority, and can be answered by a proxy in front of the server. An SSH key restricted to the attester command, with the server's host key pinned, lets only the verifier ask and only the server answer. Neither stops root on the server from answering falsely; only hardware evidence does. See [Forged answers](/docs/forged-answers/#why-ssh-and-no-http-endpoint).
 
 ## How is it different from SLSA and Sigstore?
 

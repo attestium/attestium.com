@@ -38,7 +38,7 @@ The system has three parts, each with a separate purpose:
 
 1. **[Attestium](https://github.com/attestium/attestium.com) (library and format)**: The evidence format and the primitives to collect and appraise each part of it. It makes no decisions about policy and runs no network service.
 
-2. **[Audit Status](https://github.com/auditstatus/auditstatus.com) (attester and verifier)**: A single executable built on Attestium. On a server it collects evidence (`auditstatus ssh` behind a restricted SSH key, or `auditstatus serve` on the loopback interface of a Kubernetes pod). Elsewhere it verifies that evidence against public references (`auditstatus verify`) and writes reports and a badge.
+2. **[Audit Status](https://github.com/auditstatus/auditstatus) (attester and verifier)**: A single executable built on Attestium. On a server it collects evidence (`auditstatus ssh` behind a restricted SSH key, or `auditstatus serve` on the loopback interface of a Kubernetes pod). Elsewhere it verifies that evidence against public references (`auditstatus verify`) and writes reports and a badge.
 
 3. **Publication**: A scheduled job, typically a GitHub Actions workflow in a public repository, runs the verifier, commits its reports, opens an issue when a server does not pass, and serves a badge that a status page displays.
 
