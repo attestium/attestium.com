@@ -8,7 +8,7 @@ Attestium is intended for any service whose users should be able to check that i
 
 > **[https://status.forwardemail.net](https://status.forwardemail.net)**
 
-The verification is the first project of the Audit Status [public registry](https://github.com/auditstatus/auditstatus/blob/main/registry/forwardemail.yml), which verifies registered services as a third party:
+The verification is the first project of the Audit Status [public registry](https://github.com/auditstatus/auditstatus.com/blob/main/registry/forwardemail.yml), which verifies registered services as a third party:
 
 * The **attester** is installed on each server by an Ansible playbook, as a dedicated account whose authorized keys are the registry's keys, restricted to the attester command. The same playbook records the servers' host keys, which the registry file pins, and can enroll each server's TPM.
 * The **verifier** runs hourly in Audit Status's own GitHub Actions workflow. Its SSH key was generated on a GitHub-hosted runner and exists only as a secret of that workflow's environment. It compares each server with the latest GitHub release of the public `forwardemail.net` repository, the release's lockfile and the npm tarballs it pins, with their build provenance, the official Node.js release, and the global npm, pnpm and PM2 packages.
@@ -22,7 +22,7 @@ A result for a server without an enrolled TPM is at the `software` level, and th
 
 Adoption follows the same steps for any service:
 
-1. **Describe the service.** `auditstatus init` inspects the repository, detects its languages, package managers and container build, and writes a verifier configuration, an attester configuration and a scheduled workflow.
+1. **Describe the service.** `auditstatus init` inspects the repository, detects its languages, package managers and container build, and writes an attester configuration, a verifier configuration and a scheduled workflow. For the public registry, the service describes itself in one YAML file instead: its repository, where it is deployed, and each server with its SSH host key.
 2. **Install the attester.** On servers, with the Ansible role or the release binary and a restricted SSH key; on Kubernetes, with the Helm chart, which runs the attester as a DaemonSet and creates a service account that can only port-forward to it.
 3. **Enroll hardware.** Run TPM enrollment for each server, or pin the expected launch measurements of confidential VMs. This step is optional, but it determines the level of evidence a result can reach.
 4. **Check the setup.** `auditstatus doctor` confirms, on each side, that every check can run: permissions, processes, ecosystems, containers, TPM, IMA, confidential VM, monitor, and access to every reference.

@@ -82,7 +82,8 @@
     "schema/",
     "SPEC.md",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "!lib/package.json"
   ],
   "homepage": "https://attestium.com",
   "keywords": [
@@ -123,13 +124,11 @@
     "url": "https://github.com/attestium/attestium.com.git"
   },
   "scripts": {
-    "build": "node build.mjs",
     "c8": "c8 node --test",
     "coverage": "c8 node --test",
     "lint": "fixpack && remark . -qfo && xo --fix",
     "pre-commit": "lint-staged",
     "prepare": "husky",
-    "prepublishOnly": "pnpm run build",
     "pretest": "pnpm run lint",
     "test": "node --test",
     "test-coverage": "c8 node --test"
@@ -164,7 +163,14 @@
       "logical-assignment-operators": "off",
       "no-dupe-class-members": "off",
       "no-bitwise": "off",
-      "unicorn/no-await-expression-member": "off"
+      "unicorn/no-await-expression-member": "off",
+      "import-x/no-extraneous-dependencies": [
+        "error",
+        {
+          "includeTypes": true,
+          "packageDir": "."
+        }
+      ]
     },
     "space": 2
   }

@@ -566,7 +566,7 @@ ${brandLink()}
 ${list('f-docs', 'Documentation', [['/docs/getting-started/', 'Getting started'], ['/docs/concepts/', 'Concepts'], ['/docs/api/', 'API reference'], ['/spec/', 'Specification'], ['/faq/', 'FAQ']])}
 ${list('f-guides', 'Use cases', guides.map(g => [g.url, g.label]))}
 ${list('f-project', 'Project', [[SITE.repo, 'GitHub'], ['https://www.npmjs.com/package/attestium', 'npm'], ['/attestium-whitepaper.pdf', 'Whitepaper (PDF)'], ['/docs/security/#reporting-a-vulnerability', 'Security'], ['/brand/', 'Brand']])}
-${list('f-related', 'Related', [['https://auditstatus.github.io/auditstatus/', 'Audit Status'], ['https://forwardemail.net', 'Forward Email'], ['https://status.forwardemail.net', 'Forward Email status']])}
+${list('f-related', 'Related', [['https://auditstatus.com/', 'Audit Status'], ['https://forwardemail.net', 'Forward Email'], ['https://status.forwardemail.net', 'Forward Email status']])}
 </div>
 </footer>`;
 }
@@ -764,7 +764,7 @@ ${example ? codeBlock(example[1], 'js', 'example.js') : ''}
 <div>
 <h3>Audit Status</h3>
 <p>A ready-made tool built on Attestium: one binary with an attester, invoked over a restricted SSH key, and a verifier that runs in CI and publishes reports and a status badge.</p>
-<p><a href="https://auditstatus.github.io/auditstatus/">auditstatus.github.io/auditstatus</a></p>
+<p><a href="https://auditstatus.com/">auditstatus.com</a></p>
 </div>
 </div>
 <div class="credit">
@@ -1111,7 +1111,7 @@ ${group('FAQ')}
 
 - [All documentation in one file](${SITE.url}/llms-full.txt): every page above, concatenated
 - [Whitepaper](${SITE.url}/attestium-whitepaper.pdf): architecture, security model and background (PDF)
-- [Audit Status](https://auditstatus.github.io/auditstatus/llms.txt): a ready-made attester and verifier built on Attestium
+- [Audit Status](https://auditstatus.com/llms.txt): a ready-made attester and verifier built on Attestium
 - [Source code](${SITE.repo}): the library, tests and examples
 `;
 }

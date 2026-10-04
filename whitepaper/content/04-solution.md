@@ -38,13 +38,13 @@ The system has three parts, each with a separate purpose:
 
 1. **[Attestium](https://github.com/attestium/attestium.com) (library and format)**: The evidence format and the primitives to collect and appraise each part of it. It makes no decisions about policy and runs no network service.
 
-2. **[Audit Status](https://github.com/auditstatus/auditstatus) (attester and verifier)**: A single executable built on Attestium. On a server it collects evidence (`auditstatus ssh` behind a restricted SSH key, or `auditstatus serve` on the loopback interface of a Kubernetes pod). Elsewhere it verifies that evidence against public references (`auditstatus verify`) and writes reports and a badge.
+2. **[Audit Status](https://github.com/auditstatus/auditstatus.com) (attester and verifier)**: A single executable built on Attestium. On a server it collects evidence (`auditstatus ssh` behind a restricted SSH key, or `auditstatus serve` on the loopback interface of a Kubernetes pod). Elsewhere it verifies that evidence against public references (`auditstatus verify`) and writes reports and a badge.
 
-3. **Publication**: A scheduled job, typically a GitHub Actions workflow in a public repository, runs the verifier, commits its reports, opens an issue when a server does not pass, and serves a badge that a status page displays.
+3. **Publication**: A scheduled job runs the verifier and publishes its reports, opens an issue when a server does not pass, and serves a badge that a status page displays. The job is either Audit Status's public registry, where a service registers with one YAML file and a workflow it does not control verifies it every hour, or a GitHub Actions workflow in the service's own public repository.
 
 ## Why GitHub Actions
 
-Running the verifier in a public repository's Actions adds no new processor to a service's data pipeline: most open-source projects already trust GitHub with their source code and CI. The workflow definition, its logs and every committed result are public, so anyone can read what was checked and when, and can rerun the same verifier against the same references.
+Running the verifier in a public repository's Actions adds no new processor to a service's data pipeline: most open-source projects already trust GitHub with their source code and CI. The workflow definition, its logs and every committed result are public, so anyone can read what was checked and when, and can rerun the same verifier against the same references. In the public registry the verifier is also a third party: its SSH key was generated on a GitHub-hosted runner and exists only as an environment secret, builds run in a job without the key, and a registry file cannot change the references a result is compared with.
 
 The pattern is not tied to GitHub. `auditstatus verify` is a stateless command that reads a configuration file and writes `report.json`, `report.md` and a Shields.io endpoint badge. It runs the same way in any CI system or on a separate host. The Audit Status GitHub Action wraps it with optional publication to a branch, an issue that opens when the audit stops passing and closes when it passes again, and a configurable failure threshold.
 

@@ -61,4 +61,4 @@ A check that could not complete is inconclusive, never passing: a file the attes
 
 *   [Getting started](/docs/getting-started/) builds a minimal attester and verifier in Node.js.
 *   [Concepts](/docs/concepts/) covers roles, evidence, references and levels in depth.
-*   [Audit Status](https://auditstatus.github.io/auditstatus/) is a ready-made attester and verifier that publishes results to a status page.
+*   [Audit Status](https://auditstatus.com/) is a ready-made attester and verifier that publishes results to a status page.

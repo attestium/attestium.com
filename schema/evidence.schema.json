@@ -99,7 +99,23 @@
         "packages": {"type": "array", "items": {"$ref": "#/$defs/package"}},
         "links": {"type": "array", "items": {"$ref": "#/$defs/link"}},
         "caches": {"type": "array", "items": {"$ref": "#/$defs/cache"}},
-        "errors": {"type": "array", "items": {"$ref": "#/$defs/fileError"}}
+        "errors": {"type": "array", "items": {"$ref": "#/$defs/fileError"}},
+        "pm2Daemons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["pid", "startTime", "changedAfterStart", "metadataChangedAfterStart"],
+            "additionalProperties": false,
+            "properties": {
+              "pid": {"type": "integer", "minimum": 1},
+              "startTime": {"$ref": "#/$defs/time"},
+              "changedAfterStart": {"$ref": "#/$defs/stringList"},
+              "metadataChangedAfterStart": {"$ref": "#/$defs/stringList"},
+              "changedAfterStartTruncated": {"type": "boolean"},
+              "metadataChangedAfterStartTruncated": {"type": "boolean"}
+            }
+          }
+        }
       }
     },
     "monitor": {
@@ -234,6 +250,7 @@
       "properties": {
         "ecosystem": {"enum": ["npm", "pypi", "rubygems", "hex", "composer", "maven", "nuget"]},
         "dir": {"type": "string"},
+        "root": {"type": "string"},
         "packages": {"type": "array", "items": {"$ref": "#/$defs/package"}},
         "unaccounted": {"$ref": "#/$defs/stringList"},
         "links": {"type": "array", "items": {"$ref": "#/$defs/link"}},

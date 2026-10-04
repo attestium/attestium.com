@@ -53,4 +53,4 @@ Many cloud providers offer virtual TPMs. A vTPM is operated by the hypervisor, s
 
 *   [Hardware-backed evidence](/docs/hardware/): the full API for TPM quotes, enrollment and IMA replay.
 *   [Remote attestation](/remote-attestation/): roles and the round trip.
-*   [Audit Status hardware evidence](https://auditstatus.github.io/auditstatus/docs/hardware/): enroll a server's TPM with one command.
+*   [Audit Status hardware evidence](https://auditstatus.com/docs/hardware/): enroll a server's TPM with one command.

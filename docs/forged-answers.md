@@ -136,7 +136,7 @@ IMA records only what its policy tells the kernel to measure, and the verifier c
 *   **An empty record is a finding.** A verifier should report a service under whose root the kernel measured nothing, and fail it when IMA is required. Audit Status does.
 *   **The policy itself.** Root can reboot with a weaker policy. Load the policy from the initramfs and pin the PCRs that measure the initramfs and the kernel command line (PCR 9 and 8 with GRUB), so another policy changes a pinned value.
 
-Audit Status's [hardware guide](https://github.com/auditstatus/auditstatus/blob/main/docs/hardware.md#enable-ima) gives a complete policy.
+Audit Status's [hardware guide](https://github.com/auditstatus/auditstatus.com/blob/main/docs/hardware.md#enable-ima) gives a complete policy.
 
 ### What a forger can still do with TPM and IMA
 
@@ -197,4 +197,4 @@ A verifier that follows these rules turns each forgery above into a failed or in
 
 ## What the getting-started example proves
 
-The attester and verifier in [Getting started](getting-started.md#an-attester-and-a-verifier) exchange software evidence over SSH, with the verifier's key restricted to the attester and the server's host key pinned. They show the format and the order of the checks, and that only the verifier can ask and only the server can answer. They detect a changed file when the attester is honest. They prove nothing against root on the server, who controls the attester. For a result that holds against root, add a TPM quote with a pinned AK and IMA with a policy that measures the service's files ([Hardware](hardware.md)), or run in a confidential VM, and apply the rules above. [Audit Status](https://github.com/auditstatus/auditstatus) applies them, and its report and badge name the evidence level of every result.
+The attester and verifier in [Getting started](getting-started.md#an-attester-and-a-verifier) exchange software evidence over SSH, with the verifier's key restricted to the attester and the server's host key pinned. They show the format and the order of the checks, and that only the verifier can ask and only the server can answer. They detect a changed file when the attester is honest. They prove nothing against root on the server, who controls the attester. For a result that holds against root, add a TPM quote with a pinned AK and IMA with a policy that measures the service's files ([Hardware](hardware.md)), or run in a confidential VM, and apply the rules above. [Audit Status](https://github.com/auditstatus/auditstatus.com) applies them, and its report and badge name the evidence level of every result.

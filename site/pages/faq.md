@@ -15,7 +15,7 @@ Remote attestation lets a verifier check what another machine runs without trust
 
 ## Is Attestium a library or a tool?
 
-A library and a format. It provides the pieces to collect facts on a machine, the evidence format and its schema, and the checks against each kind of reference. [Audit Status](https://auditstatus.github.io/auditstatus/) is a ready-made tool built on it, with an attester binary, a verifier for CI and published reports.
+A library and a format. It provides the pieces to collect facts on a machine, the evidence format and its schema, and the checks against each kind of reference. [Audit Status](https://auditstatus.com/) is a ready-made tool built on it, with an attester binary, a verifier for CI and published reports.
 
 ## Does it need a TPM?
 

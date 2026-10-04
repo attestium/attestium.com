@@ -18,7 +18,7 @@ This section lists what is implemented and what remains. The remaining items fol
 * **IMA**: Log replay to the quoted PCR 10, and comparison of the kernel's measurements of service files with the public commit.
 * **Confidential VMs**: AMD SEV-SNP and Intel TDX reports through configfs-tsm, verified to the vendors' roots, with pinned launch measurements.
 * **Monitoring between audits**: An eBPF record of programs executed and files mapped executable since the previous audit.
-* **Transports and deployment**: SSH forced commands with pinned host keys; a Kubernetes DaemonSet reached through port-forward; an Ansible role, a Helm chart, a GitHub Action, and setup and diagnostic commands.
+* **Transports and deployment**: SSH forced commands with pinned host keys; a Kubernetes DaemonSet reached through port-forward; an Ansible role, a Helm chart, a GitHub Action, a public registry that verifies registered services every hour, and setup and diagnostic commands.
 
 ## Remaining Work
 

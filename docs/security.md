@@ -48,7 +48,7 @@ Just-in-time compilers (V8, the JVM, .NET, PyPy, LuaJIT) write machine code into
 For interpreted and JIT-compiled languages, what matters is the source and bytecode that were loaded:
 
 *   compare the files on disk with the reference;
-*   report files written or changed after the process started (`changedAfterStart`, `metadataChangedAfterStart`): the process may run an older or newer version than the disk shows;
+*   report what changed after the process started (`changedAfterStart`, `metadataChangedAfterStart`), from each file's status-change time (ctime), which no system call sets back (root can set the clock back first): the process may run an older or newer version than the disk shows, or a file modified and restored. Cover installed packages and the process manager as well as the project, and directories too (`walkTree` returns their times): a file added and removed again leaves only its directory changed;
 *   avoid caches that cannot be verified, such as Python `.pyc` files written on the server;
 *   check every runtime's code-loading vectors (environment, options, attach mechanisms, debug ports).
 

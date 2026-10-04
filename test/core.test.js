@@ -172,7 +172,54 @@ test('walkTree hashes files, records symlinks without following them, and report
 
   const missing = await fileTree.walkTree(path.join(directory, 'nope'));
   assert.deepEqual(missing.entries, []);
+  assert.deepEqual(missing.directories, []);
   assert.equal(missing.errors[0].error, 'ENOENT');
+});
+
+test('walkTree reports each directory it lists with its times, which show a file added and removed again', async t => {
+  const directory = tempDir(t);
+  writeFiles(directory, {'index.js': 'main', 'lib/foo/index.js': 'foo', 'skip/x.js': 'x'});
+  const times = relative => {
+    const stats = fs.statSync(path.join(directory, relative));
+    return {path: relative, ctimeMs: stats.ctimeMs, mtimeMs: stats.mtimeMs};
+  };
+
+  const exclude = relative => relative === 'skip';
+  const before = await fileTree.walkTree(directory, {exclude});
+  assert.deepEqual(before.directories, [times('.'), times('lib'), times('lib/foo')]);
+  // A file that shadows lib/foo/index.js for require('./lib/foo'), removed
+  // again: every file is as it was, but its directory changed.
+  await sleep(20);
+  fs.writeFileSync(path.join(directory, 'lib', 'foo.js'), 'shadow');
+  fs.rmSync(path.join(directory, 'lib', 'foo.js'));
+  const after = await fileTree.walkTree(directory, {exclude});
+  assert.deepEqual(after.entries, before.entries);
+  const lib = after.directories.find(item => item.path === 'lib');
+  assert.deepEqual(lib, times('lib'));
+  assert.ok(lib.mtimeMs > before.directories[1].mtimeMs && lib.ctimeMs > before.directories[1].ctimeMs);
+  assert.deepEqual(after.directories.filter(item => item.path !== 'lib'), before.directories.filter(item => item.path !== 'lib'));
+});
+
+test('walkTree with hash: false only reads the status of each entry', async t => {
+  const directory = tempDir(t);
+  writeFiles(directory, {'a.js': 'a', 'sub/b.js': 'b'});
+  fs.symlinkSync('a.js', path.join(directory, 'link'));
+  fs.chmodSync(path.join(directory, 'sub', 'b.js'), 0);
+  t.mock.method(fs.promises, 'readlink', async () => {
+    throw new Error('read a link');
+  });
+  const walk = await fileTree.walkTree(directory, {hash: false});
+  const lstat = (relative, type) => {
+    const stats = fs.lstatSync(path.join(directory, relative));
+    return {
+      path: relative, type, ctimeMs: stats.ctimeMs, mtimeMs: stats.mtimeMs,
+    };
+  };
+
+  // An unreadable file is listed too: it is never opened.
+  assert.deepEqual(walk.entries, [lstat('a.js', 'file'), lstat('link', 'symlink'), lstat('sub/b.js', 'file')]);
+  assert.deepEqual(walk.directories.map(item => item.path), ['.', 'sub']);
+  assert.deepEqual(walk.errors, []);
 });
 
 const linux = process.platform === 'linux';
@@ -250,7 +297,7 @@ test('walkTree walks a directory resolved inside a root, and reports one it cann
   fs.symlinkSync(path.join(outside, 'gems'), path.join(root, 'link'));
   // Inside the root, the absolute link names root + that path, which does not exist.
   const walk = await fileTree.walkTree('/link/real', {root});
-  assert.deepEqual(walk, {entries: [], errors: [{path: '.', error: 'ENOENT'}]});
+  assert.deepEqual(walk, {entries: [], directories: [], errors: [{path: '.', error: 'ENOENT'}]});
   const inside = await fileTree.walkTree('/gems/../gems/real', {root});
   assert.deepEqual(inside.entries.map(entry => entry.path), ['a.rb']);
 });
@@ -270,7 +317,7 @@ test('walkTree and hashFile inside a root: links another user made, and director
   t.mock.method(fs.promises, 'readdir', async (...args) => {
     throw Object.assign(new Error('denied'), {code: 'EACCES'});
   });
-  assert.deepEqual(await fileTree.walkTree(root), {entries: [], errors: [{path: '.', error: 'EACCES'}]});
+  assert.deepEqual(await fileTree.walkTree(root), {entries: [], directories: [], errors: [{path: '.', error: 'EACCES'}]});
   const containers = require('../lib/containers');
   assert.deepEqual(await containers.walkUpper(root), {files: {}, deleted: [], errors: [{path: '.', error: 'EACCES'}]});
   fs.promises.readdir = readdir;

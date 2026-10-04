@@ -384,7 +384,13 @@ declare namespace Attestium {
     export function globToRegExp(pattern: string): RegExp;
     export function createMatcher(patterns?: string[]): (relativePath: string) => boolean;
     export function toPosixRelative(root: string, fullPath: string): string;
-    export function walkTree(root: string, options?: {exclude?: (relativePath: string, isDirectory: boolean) => boolean; concurrency?: number; root?: string; rootOwnedLinks?: boolean}): Promise<{entries: Entry[]; errors: WalkError[]}>;
+    export type WalkOptions = {exclude?: (relativePath: string, isDirectory: boolean) => boolean; concurrency?: number; root?: string; rootOwnedLinks?: boolean};
+    /** Each directory listed, '.' for the top: adding, removing or renaming an entry changes both times. */
+    export type Directory = {path: string; ctimeMs: number; mtimeMs: number};
+    /** With hash: false, each entry is only stat'ed: its path, type and times. */
+    export type StatEntry = Pick<Entry, 'path' | 'type' | 'ctimeMs' | 'mtimeMs'>;
+    export function walkTree(root: string, options: WalkOptions & {hash: false}): Promise<{entries: StatEntry[]; directories: Directory[]; errors: WalkError[]}>;
+    export function walkTree(root: string, options?: WalkOptions & {hash?: true}): Promise<{entries: Entry[]; directories: Directory[]; errors: WalkError[]}>;
     export function manifestDigest(entries: Array<{path: string; sha256: string; type?: 'file' | 'symlink'}>): string;
   }
 

@@ -25,4 +25,4 @@ The guides and reference for Attestium, the library for collecting and verifying
 
 ## Related
 
-*   [Audit Status](https://github.com/auditstatus/auditstatus): a ready-made attester and verifier built on Attestium, which publishes results to a status page.
+*   [Audit Status](https://github.com/auditstatus/auditstatus.com): a ready-made attester and verifier built on Attestium, which publishes results to a status page.

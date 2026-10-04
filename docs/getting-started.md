@@ -402,4 +402,4 @@ Shared libraries from Debian or Ubuntu are explained by their package in the sig
 *   [Forged answers](forged-answers.md): why a server can fake software evidence, and what stops it.
 *   [Hardware](hardware.md): bind evidence to a TPM quote or a confidential VM report.
 *   [API reference](api.md): every module and function.
-*   [Audit Status](https://github.com/auditstatus/auditstatus) is a ready-made attester and verifier built on these modules.
+*   [Audit Status](https://github.com/auditstatus/auditstatus.com) is a ready-made attester and verifier built on these modules.
