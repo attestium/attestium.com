@@ -480,6 +480,21 @@ const hasOpenssl = which('openssl') && (() => {
   }
 })();
 
+// The configuration openssl reads in the tests (see fixtures/openssl.cnf).
+const OPENSSL_CONF = path.join(__dirname, 'fixtures', 'openssl.cnf');
+
+/**
+ * Run openssl with the tests' configuration.
+ * @param {string[]} args
+ * @param {Object} [options] - execFileSync options
+ * @returns {Buffer} its output
+ */
+function openssl(args, options = {}) {
+  return execFileSync('openssl', args, {
+    stdio: ['ignore', 'pipe', 'pipe'], ...options, env: {...process.env, ...options.env, OPENSSL_CONF},
+  });
+}
+
 const hasTpmSimulator = process.platform === 'linux' && which('swtpm') && which('tpm2_quote');
 
 async function freePort() {
@@ -601,6 +616,7 @@ module.exports = {
   makeTarGz,
   which,
   hasOpenssl,
+  openssl,
   hasTpmSimulator,
   startSwtpm,
   freePort,

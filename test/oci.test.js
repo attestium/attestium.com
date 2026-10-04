@@ -12,7 +12,7 @@ const oci = require('../lib/oci');
 const {isPrivateAddress} = require('../lib/http');
 const containers = require('../lib/containers');
 const {
-  tempDir, writeFiles, windows, startServer, which, hasOpenssl, sleep,
+  tempDir, writeFiles, windows, startServer, which, hasOpenssl, openssl, sleep,
 } = require('./helpers');
 const {
   sha256, hasDocker, startRegistry, startContainer,
@@ -227,7 +227,7 @@ test('Registry: challenge failures, server errors and HTTPS registries', async t
 
 test('Registry: an HTTPS registry with its own CA and a bearer challenge', {skip: !hasOpenssl}, async t => {
   const directory = tempDir(t);
-  execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-keyout', 'key.pem', '-out', 'cert.pem', '-days', '1', '-subj', '/CN=127.0.0.1', '-addext', 'subjectAltName=IP:127.0.0.1'], {cwd: directory, stdio: 'ignore'});
+  openssl(['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-keyout', 'key.pem', '-out', 'cert.pem', '-days', '1', '-subj', '/CN=127.0.0.1', '-addext', 'basicConstraints=critical,CA:TRUE', '-addext', 'subjectAltName=IP:127.0.0.1'], {cwd: directory});
   const ca = fs.readFileSync(path.join(directory, 'cert.pem'));
   const blob = Buffer.from('layer');
   const digest = `sha256:${sha256(blob)}`;

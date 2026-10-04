@@ -276,7 +276,30 @@ async function startRegistry(t, image, options = {}) {
     blobs.set(`sha256:${name}`, fs.readFileSync(path.join(directory, 'blobs', 'sha256', name)));
   }
 
-  const top = JSON.parse(fs.readFileSync(path.join(directory, 'index.json'), 'utf8')).manifests[0].digest;
+  let top = JSON.parse(fs.readFileSync(path.join(directory, 'index.json'), 'utf8')).manifests[0].digest;
+  // Docker's containerd image store saves the image's index (which lists
+  // every platform, with this machine's alone held); its older store saves
+  // the platform's manifest alone.  Serve an index either way, naming one
+  // more platform that the registry does not hold.
+  const saved = JSON.parse(blobs.get(top));
+  if (!Array.isArray(saved.manifests)) {
+    const {os, architecture, variant} = JSON.parse(blobs.get(saved.config.digest));
+    const index = Buffer.from(JSON.stringify({
+      schemaVersion: 2,
+      mediaType: 'application/vnd.oci.image.index.v1+json',
+      manifests: [
+        {
+          mediaType: saved.mediaType, digest: top, size: blobs.get(top).length, platform: {os, architecture, ...(variant && {variant})},
+        },
+        {
+          mediaType: saved.mediaType, digest: `sha256:${sha256(`not held: ${top}`)}`, size: 2, platform: {os: 'linux', architecture: architecture === 'riscv64' ? 's390x' : 'riscv64'},
+        },
+      ],
+    }));
+    top = `sha256:${sha256(index)}`;
+    blobs.set(top, index);
+  }
+
   const referrers = new Map();
   const requests = [];
   let issued = 'token-1';

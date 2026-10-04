@@ -6,11 +6,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const {promisify} = require('node:util');
-const {execFile, execFileSync} = require('node:child_process');
+const {execFile} = require('node:child_process');
 const nuget = require('../lib/ecosystems/nuget');
 const {NoLockfileError, ReferenceStore} = require('../lib/ecosystems/common');
 const {
-  tempDir, writeFiles, needsPosix, startServer, makeZip, which, hasOpenssl,
+  tempDir, writeFiles, needsPosix, startServer, makeZip, which, hasOpenssl, openssl,
 } = require('./helpers');
 
 const sha256 = data => crypto.createHash('sha256').update(data).digest('hex');
@@ -293,9 +293,9 @@ test('a published .NET application with a signed package verifies', {skip: !(whi
     return;
   }
 
-  const certificate = ['-days', '2', '-nodes', '-subj', '/CN=Attestium Test', '-addext', 'extendedKeyUsage=codeSigning'];
-  execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-keyout', 'key.pem', '-out', 'cert.pem', ...certificate], {cwd: work, stdio: 'ignore'});
-  execFileSync('openssl', ['pkcs12', '-export', '-out', 'cert.pfx', '-inkey', 'key.pem', '-in', 'cert.pem', '-passout', 'pass:test'], {cwd: work, stdio: 'ignore'});
+  const certificate = ['-days', '2', '-nodes', '-subj', '/CN=Attestium Test', '-addext', 'basicConstraints=critical,CA:TRUE', '-addext', 'extendedKeyUsage=codeSigning'];
+  openssl(['req', '-x509', '-newkey', 'rsa:2048', '-keyout', 'key.pem', '-out', 'cert.pem', ...certificate], {cwd: work});
+  openssl(['pkcs12', '-export', '-out', 'cert.pfx', '-inkey', 'key.pem', '-in', 'cert.pem', '-passout', 'pass:test'], {cwd: work});
   const packageFile = path.join(feed, 'Acme.Lib.1.0.0.nupkg');
   const unsigned = fs.readFileSync(packageFile);
   try {

@@ -15,7 +15,7 @@ const {
   httpGet, httpGetJson, assertAllowedUrl, isPrivateAddress, privateAddressLookup, connectOptions,
 } = require('../lib/http');
 const {
-  tempDir, writeFiles, needsPosix, startServer, listenOnLoopback, makeTarGz, sleep, which, hasOpenssl,
+  tempDir, writeFiles, needsPosix, startServer, listenOnLoopback, makeTarGz, sleep, which, hasOpenssl, openssl,
 } = require('./helpers');
 
 // ─── util ───────────────────────────────────────────────────────────
@@ -771,13 +771,16 @@ test('httpGet retries refused connections, then gives up', async () => {
     probe.close(resolve);
   });
   await assert.rejects(httpGet(`http://127.0.0.1:${port}/`, {maxRetries: 1, retryDelay: 1}), {code: 'ECONNREFUSED'});
-  await assert.rejects(httpGet('http://localhost:0/', {maxRetries: 0}), /./);
+  // No retries.  An address, not a name: Node.js tries each of a name's
+  // addresses, and the error it reports then differs by platform.  (Port 0
+  // would be port 80, where a machine may run a web server.)
+  await assert.rejects(httpGet(`http://127.0.0.1:${port}/`, {maxRetries: 0}), {code: 'ECONNREFUSED'});
 });
 
 test('httpGet verifies TLS certificates (a self-signed server is rejected)', {skip: !hasOpenssl && 'OpenSSL is not installed'}, async t => {
   const https = require('node:https');
   const directory = tempDir(t);
-  execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-subj', '/CN=localhost', '-days', '1', '-keyout', path.join(directory, 'key.pem'), '-out', path.join(directory, 'cert.pem')], {stdio: 'ignore'});
+  openssl(['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-subj', '/CN=localhost', '-days', '1', '-addext', 'basicConstraints=critical,CA:TRUE', '-keyout', path.join(directory, 'key.pem'), '-out', path.join(directory, 'cert.pem')]);
   const options = {key: fs.readFileSync(path.join(directory, 'key.pem')), cert: fs.readFileSync(path.join(directory, 'cert.pem'))};
   const servers = await listenOnLoopback(() => https.createServer(options, (request, response) => {
     response.end('should never be read');
@@ -822,7 +825,7 @@ test('tar reader rejects non-octal numeric fields', () => {
 test('httpGet over HTTPS: trusted CA, and no downgrade to HTTP on redirect', {skip: !hasOpenssl && 'OpenSSL is not installed'}, async t => {
   const https = require('node:https');
   const directory = tempDir(t);
-  execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes', '-days', '1', '-subj', '/CN=127.0.0.1', '-addext', 'subjectAltName=IP:127.0.0.1', '-keyout', path.join(directory, 'key.pem'), '-out', path.join(directory, 'cert.pem')], {stdio: 'ignore'});
+  openssl(['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes', '-days', '1', '-subj', '/CN=127.0.0.1', '-addext', 'basicConstraints=critical,CA:TRUE', '-addext', 'subjectAltName=IP:127.0.0.1', '-keyout', path.join(directory, 'key.pem'), '-out', path.join(directory, 'cert.pem')]);
   const cert = fs.readFileSync(path.join(directory, 'cert.pem'));
   const plain = await startServer(t, {'/plain': {body: 'downgraded'}});
   const server = https.createServer({key: fs.readFileSync(path.join(directory, 'key.pem')), cert}, (request, response) => {

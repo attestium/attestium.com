@@ -8,7 +8,7 @@ const {
   DpkgDatabase, ArchiveReference, parseStanzas, aliases, osRelease, defaultArchives,
 } = require('../lib/distro');
 const {ReferenceStore} = require('../lib/ecosystems/common');
-const {tempDir, writeFiles} = require('./helpers');
+const {tempDir, writeFiles, windows} = require('./helpers');
 const {
   sha256, hasDebianTools, makeGpgKey, buildDeb, writeAptSuite, serveDirectory, makeDpkgRoot,
 } = require('./system-helpers');
@@ -44,7 +44,7 @@ test('parseStanzas: fields, continuation lines and stanza boundaries', () => {
   assert.deepEqual(parseStanzas(''), []);
 });
 
-test('DpkgDatabase: installed packages and file owners', t => {
+test('DpkgDatabase: installed packages and file owners', {skip: windows && 'dpkg names files with colons, which Windows file names cannot hold'}, t => {
   const root = makeDpkgRoot(t, [
     {
       name: 'coreutils', version: '9.4-3', arch: 'amd64', files: ['/usr/bin/ls', '/bin/cat'],

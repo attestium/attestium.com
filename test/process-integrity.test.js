@@ -179,8 +179,10 @@ test('an inspector opened at runtime with SIGUSR1 is reported', {skip: !linux}, 
   assert.equal(new ProcessIntegrity({inspectorPorts: [1]}).checkAll(proc.pid).passed, false);
   assert.equal(new ProcessIntegrity().checkAll(proc.pid, {runtime: 'native'}).passed, true, 'a native program may listen on 9229');
 
-  // On a port the process's options choose, it is found the same way.
-  const port = 40_000 + (process.pid % 20_000);
+  // On a port the process's options choose, it is found the same way.  The
+  // port is below Linux's ephemeral ports (32768 and up), so no other
+  // test's connection can take it before the inspector binds it.
+  const port = 20_000 + (process.pid % 10_000);
   const custom = await child(t, process.execPath, [keepAlive(t)], {env: {...cleanEnvironment(), NODE_OPTIONS: `--inspect-port=127.0.0.1:${port}`}});
   const configured = new ProcessIntegrity({inspectorPorts: [1]});
   assert.equal(configured.checkAll(custom.proc.pid).passed, true, 'configuring the port alone opens nothing');

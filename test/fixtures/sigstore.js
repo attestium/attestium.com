@@ -12,9 +12,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const {execFileSync} = require('node:child_process');
 const {canonicalize} = require('../../lib/util');
 const {pae} = require('../../lib/sigstore');
+const helpers = require('../helpers');
 
 const GITHUB_ISSUER = 'https://token.actions.githubusercontent.com';
 const OIDS = {
@@ -31,7 +31,7 @@ let authority = null;
 let counter = 0;
 
 function openssl(args, directory) {
-  return execFileSync('openssl', args, {cwd: directory, stdio: ['ignore', 'pipe', 'pipe']});
+  return helpers.openssl(args, {cwd: directory});
 }
 
 const unique = () => `${process.pid}-${++counter}-${crypto.randomBytes(3).toString('hex')}`;

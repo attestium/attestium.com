@@ -1,0 +1,13 @@
+# The configuration openssl reads in the tests (OPENSSL_CONF) in place of
+# the system's openssl.cnf: certificates get the extensions below and the
+# ones -addext names, and nothing the system's file adds.  OpenSSL 1.1
+# writes an extension twice when -addext names one the file adds too.
+[req]
+distinguished_name = dn
+x509_extensions = v3
+
+[dn]
+
+[v3]
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always,issuer

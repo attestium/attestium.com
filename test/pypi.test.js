@@ -128,6 +128,10 @@ const issue = (result, pattern) => result.issues.find(item => pattern.test(item.
 const PIP_SCRIPT = '#!/venv/bin/python\n# -*- coding: utf-8 -*-\nimport re\nimport sys\nfrom demo.cli import main\nif __name__ == \'__main__\':\n    sys.argv[0] = re.sub(r\'(-script\\.pyw|\\.exe)?$\', \'\', sys.argv[0])\n    sys.exit(main())\n';
 const UV_SCRIPT = '#!/venv/bin/python3\n# -*- coding: utf-8 -*-\nimport sys\nfrom demo.cli import main\nif __name__ == "__main__":\n    if sys.argv[0].endswith("-script.pyw"):\n        sys.argv[0] = sys.argv[0][:-11]\n    elif sys.argv[0].endswith(".exe"):\n        sys.argv[0] = sys.argv[0][:-4]\n    sys.exit(main())\n';
 const INSTALLER_SCRIPT = '#!python\n# -*- coding: utf-8 -*-\nimport re\nimport sys\nfrom demo.cli import main\nif __name__ == "__main__":\n    sys.argv[0] = re.sub(r"(-script\\.pyw|\\.exe)?$", "", sys.argv[0])\n    sys.exit(main())\n';
+// Pip 25.2 and 25.3, pip 26, and distlib 0.4's own template (virtualenv).
+const PIP_25_2_SCRIPT = '#!/venv/bin/python3\nimport sys\nfrom demo.cli import main\nif __name__ == \'__main__\':\n    if sys.argv[0].endswith(\'.exe\'):\n        sys.argv[0] = sys.argv[0][:-4]\n    sys.exit(main())\n';
+const PIP_26_SCRIPT = '#!/venv/bin/python3\nimport sys\nfrom demo.cli import main\nif __name__ == \'__main__\':\n    sys.argv[0] = sys.argv[0].removesuffix(\'.exe\')\n    sys.exit(main())\n';
+const DISTLIB_SCRIPT = '#!/venv/bin/python\n# -*- coding: utf-8 -*-\nimport re\nimport sys\nif __name__ == \'__main__\':\n    from demo.cli import main\n    sys.argv[0] = re.sub(r\'(-script\\.pyw|\\.exe)?$\', \'\', sys.argv[0])\n    sys.exit(main())\n';
 
 // ─── names, tags, entry points ─────────────────────────────────────────
 
@@ -152,6 +156,11 @@ test('scriptEntryPoints reads console and GUI scripts only', () => {
 
 test('isGeneratedScript accepts the scripts pip, uv and installer write, and nothing else', () => {
   assert.equal(pypi.isGeneratedScript(PIP_SCRIPT, 'demo.cli:main'), true);
+  assert.equal(pypi.isGeneratedScript(PIP_25_2_SCRIPT, 'demo.cli:main'), true);
+  assert.equal(pypi.isGeneratedScript(PIP_26_SCRIPT, 'demo.cli:main'), true);
+  assert.equal(pypi.isGeneratedScript(DISTLIB_SCRIPT, 'demo.cli:main'), true);
+  assert.equal(pypi.isGeneratedScript(PIP_26_SCRIPT.replace('import main', 'import main, os'), 'demo.cli:main'), false);
+  assert.equal(pypi.isGeneratedScript(DISTLIB_SCRIPT.replace('    from demo.cli', '    import os\n    from demo.cli'), 'demo.cli:main'), false);
   assert.equal(pypi.isGeneratedScript(UV_SCRIPT, 'demo.cli:main'), true);
   assert.equal(pypi.isGeneratedScript(INSTALLER_SCRIPT, 'demo.cli:main'), true);
   assert.equal(pypi.isGeneratedScript(PIP_SCRIPT.replace('/venv/bin/python', '/venv/bin/python3.11w'), 'demo.cli:main'), true);
@@ -964,7 +973,16 @@ test('compare appraises bytecode caches, strays and the environment\'s bin direc
       venv: {
         cfg: {virtualenv: '20.0.0'},
         bin: {
-          python: 'symlink:/usr/bin/python3', python3: hex('copied interpreter'), activate: hex('a'), 'Activate.ps1': hex('a'), demo: hex(UV_SCRIPT), 'demo-tool': hex('t'), evil: hex('e'),
+          python: 'symlink:/usr/bin/python3',
+          python3: hex('copied interpreter'),
+          '\u{1D70B}thon': 'symlink:python3',
+          activate: hex('a'),
+          'activate.xsh': hex('a'),
+          'deactivate.csh': hex('a'),
+          'Activate.ps1': hex('a'),
+          demo: hex(UV_SCRIPT),
+          'demo-tool': hex('t'),
+          evil: hex('e'),
         },
       },
     },
@@ -976,7 +994,7 @@ test('compare appraises bytecode caches, strays and the environment\'s bin direc
     ['fail', ['demo/__pycache__/payload.txt']],
     ['warn', ['demo-1.0.dist-info: demo/__pycache__/cli.cpython-312.pyc', 'demo/__pycache__/x.cpython-312.pyc']],
     ['fail', ['bin/evil', 'bin/python3']],
-    ['info', ['Activate.ps1', 'activate', 'python']],
+    ['info', ['Activate.ps1', 'activate', 'activate.xsh', 'deactivate.csh', 'python', '\u{1D70B}thon']],
     ['fail', ['sitecustomize.py']],
   ]);
 

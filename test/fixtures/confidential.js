@@ -11,10 +11,10 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const {execFileSync} = require('node:child_process');
+const helpers = require('../helpers');
 
 function openssl(args, cwd) {
-  return execFileSync('openssl', args, {cwd, stdio: ['ignore', 'pipe', 'pipe']});
+  return helpers.openssl(args, {cwd});
 }
 
 /**
