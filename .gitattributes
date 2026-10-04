@@ -1,0 +1,10 @@
+# Every checkout keeps LF line endings, Windows too: tests compare fixtures
+# byte for byte, and signatures cover some of them.
+* text=auto eol=lf
+
+*.bin binary
+*.dat binary
+*.der binary
+*.pdf binary
+*.png binary
+*.tsr binary

@@ -10,7 +10,9 @@ const {
   parseChecksums, verifyMinisign, fetchChecksums, toIdentity, gpgStatusProblem,
 } = require('../lib/checksums');
 const {ReferenceStore} = require('../lib/ecosystems/common');
-const {tempDir, startServer, which} = require('./helpers');
+const {
+  tempDir, startServer, which, hasOpenssl,
+} = require('./helpers');
 const fixture = require('./fixtures/sigstore');
 
 const MINISIGN = path.join(__dirname, 'fixtures/minisign');
@@ -132,6 +134,21 @@ test('fetchChecksums with a minisign signature', {skip: !hasMinisign && 'minisig
   await assert.rejects(fetchChecksums({...source, signature: {...source.signature, url: `${url}/other.minisig`}}, {store}), /does not verify \(minisign\)/);
 });
 
+test('fetchChecksums with the stored minisign signatures', async t => {
+  const publicKey = fs.readFileSync(path.join(MINISIGN, 'mk.pub'), 'utf8').split('\n')[1];
+  const {url} = await startServer(t, {
+    '/sums.txt': {body: fs.readFileSync(path.join(MINISIGN, 'sums.txt'))},
+    '/sums.txt.minisig': {body: fs.readFileSync(path.join(MINISIGN, 'sums.txt.minisig'))},
+    '/legacy.minisig': {body: fs.readFileSync(path.join(MINISIGN, 'sums.legacy.minisig'))},
+    '/other.txt': {body: 'abc124  file\n'},
+  });
+  const store = new ReferenceStore({httpOptions: {maxRetries: 0}});
+  const signature = {type: 'minisign', publicKey};
+  assert.strictEqual((await fetchChecksums({url: `${url}/sums.txt`, signature}, {store})).signed, true);
+  assert.strictEqual((await fetchChecksums({url: `${url}/sums.txt`, signature: {...signature, url: `${url}/legacy.minisig`}}, {store})).signed, true);
+  await assert.rejects(fetchChecksums({url: `${url}/other.txt`, signature: {...signature, url: `${url}/sums.txt.minisig`}}, {store}), /does not verify \(minisign\)/);
+});
+
 test('fetchChecksums with a gpg signature', {skip: !hasGpg && 'gpg is not installed'}, async t => {
   const home = tempDir(t, 'gpg-');
   const env = {...process.env, GNUPGHOME: home};
@@ -216,7 +233,7 @@ test('gpgStatusProblem accepts only good signatures by valid keys', () => {
   assert.strictEqual(gpgStatusProblem(`${good}\n[GNUPG:] EXPSIG ABCD Name`), 'the signature has expired');
 });
 
-test('fetchChecksums with a Sigstore bundle', async t => {
+test('fetchChecksums with a Sigstore bundle', {skip: !hasOpenssl && 'OpenSSL is not installed'}, async t => {
   const {trustedRoot} = fixture.getAuthority();
   const blob = fixture.makeBundle({artifact: LIST, certificate: {repository: 'octo/app'}});
   const statement = fixture.makeBundle({

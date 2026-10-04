@@ -14,7 +14,9 @@ const tar = require('../lib/tar');
 const {
   httpGet, httpGetJson, assertAllowedUrl, isPrivateAddress, privateAddressLookup, connectOptions,
 } = require('../lib/http');
-const {tempDir, writeFiles, startServer, makeTarGz, sleep} = require('./helpers');
+const {
+  tempDir, writeFiles, needsPosix, startServer, listenOnLoopback, makeTarGz, sleep, which, hasOpenssl,
+} = require('./helpers');
 
 // ─── util ───────────────────────────────────────────────────────────
 
@@ -126,7 +128,7 @@ test('globToRegExp matches literally and supports *, ** and ?', () => {
   assert.equal(createMatcher()('x'), false);
 });
 
-test('gitBlobId matches git hash-object', t => {
+test('gitBlobId matches git hash-object', {skip: !which('git') && 'git is not installed'}, t => {
   const directory = tempDir(t);
   writeFiles(directory, {'a.txt': 'hello\n'});
   const expected = execFileSync('git', ['hash-object', path.join(directory, 'a.txt')], {encoding: 'utf8'}).trim();
@@ -134,7 +136,7 @@ test('gitBlobId matches git hash-object', t => {
   assert.equal(fileTree.gitBlobId(Buffer.from('hello\n')), expected);
 });
 
-test('walkTree hashes files, records symlinks without following them, and reports errors', async t => {
+test('walkTree hashes files, records symlinks without following them, and reports errors', {skip: needsPosix}, async t => {
   const directory = tempDir(t);
   writeFiles(directory, {
     'a.txt': 'alpha',
@@ -200,7 +202,7 @@ test('walkTree reports each directory it lists with its times, which show a file
   assert.deepEqual(after.directories.filter(item => item.path !== 'lib'), before.directories.filter(item => item.path !== 'lib'));
 });
 
-test('walkTree with hash: false only reads the status of each entry', async t => {
+test('walkTree with hash: false only reads the status of each entry', {skip: needsPosix}, async t => {
   const directory = tempDir(t);
   writeFiles(directory, {'a.js': 'a', 'sub/b.js': 'b'});
   fs.symlinkSync('a.js', path.join(directory, 'link'));
@@ -306,7 +308,11 @@ test('walkTree and hashFile inside a root: links another user made, and director
   const root = tempDir(t);
   writeFiles(root, {'lib/real/a.rb': 'a'});
   fs.symlinkSync('real', path.join(root, 'lib', 'link'));
-  fs.lchownSync(path.join(root, 'lib', 'link'), 1000, 1000);
+  // A link another user made (any link is one when the tests do not run as root).
+  if (process.getuid() === 0) {
+    fs.lchownSync(path.join(root, 'lib', 'link'), 1000, 1000);
+  }
+
   assert.deepEqual((await fileTree.walkTree('/lib/link', {root, rootOwnedLinks: true})).errors, [{path: '.', error: 'A symbolic link not owned by root: /lib/link'}]);
   assert.equal((await fileTree.walkTree('/lib/link', {root})).entries.length, 1);
   assert.equal((await fileTree.hashFile('/lib/link/a.rb', {root})).sha256, util.sha256('a'));
@@ -348,10 +354,14 @@ test('openInRoot keeps symbolic links and ".." inside the root', {skip: !linux},
   const directory = fileTree.openInRoot(root, '/etc/..', {flags: fs.constants.O_RDONLY | fs.constants.O_DIRECTORY});
   assert.ok(fs.fstatSync(directory).isDirectory());
   fs.closeSync(directory);
-  // Links another user made are refused where only root's are trusted.
-  fs.lchownSync(path.join(root, 'etc', 'relative'), 1000, 1000);
+  // Links another user made are refused where only root's are trusted
+  // (any link is one when the tests do not run as root).
+  if (process.getuid() === 0) {
+    fs.lchownSync(path.join(root, 'etc', 'relative'), 1000, 1000);
+    assert.equal(readAt('/etc/absolute', {rootOwnedLinks: true}), 'decoy');
+  }
+
   assert.throws(() => fileTree.openInRoot(root, '/etc/relative', {rootOwnedLinks: true}), /not owned by root/);
-  assert.equal(readAt('/etc/absolute', {rootOwnedLinks: true}), 'decoy');
   // The default root is /.
   const fd = fileTree.openInRoot('', path.join(outside, 'secret.txt'));
   assert.equal(fs.readFileSync(fd, 'utf8'), 'secret');
@@ -374,7 +384,7 @@ test('walkTree records files that vanish mid-walk as errors', async t => {
   assert.deepEqual(result.errors, [{path: 'a.txt', error: 'ENOENT'}]);
 });
 
-test('hashFile refuses symlinks and detects files that change while being read', async t => {
+test('hashFile refuses symlinks and detects files that change while being read', {skip: needsPosix}, async t => {
   const directory = tempDir(t);
   writeFiles(directory, {'a.txt': 'abc'});
   fs.symlinkSync(path.join(directory, 'a.txt'), path.join(directory, 'link'));
@@ -764,20 +774,18 @@ test('httpGet retries refused connections, then gives up', async () => {
   await assert.rejects(httpGet('http://localhost:0/', {maxRetries: 0}), /./);
 });
 
-test('httpGet verifies TLS certificates (a self-signed server is rejected)', async t => {
+test('httpGet verifies TLS certificates (a self-signed server is rejected)', {skip: !hasOpenssl && 'OpenSSL is not installed'}, async t => {
   const https = require('node:https');
   const directory = tempDir(t);
   execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-subj', '/CN=localhost', '-days', '1', '-keyout', path.join(directory, 'key.pem'), '-out', path.join(directory, 'cert.pem')], {stdio: 'ignore'});
-  const server = https.createServer({key: fs.readFileSync(path.join(directory, 'key.pem')), cert: fs.readFileSync(path.join(directory, 'cert.pem'))}, (request, response) => {
+  const options = {key: fs.readFileSync(path.join(directory, 'key.pem')), cert: fs.readFileSync(path.join(directory, 'cert.pem'))};
+  const servers = await listenOnLoopback(() => https.createServer(options, (request, response) => {
     response.end('should never be read');
-  });
-  await new Promise(resolve => {
-    server.listen(0, '127.0.0.1', resolve);
-  });
-  t.after(() => new Promise(resolve => {
-    server.close(resolve);
   }));
-  await assert.rejects(httpGet(`https://localhost:${server.address().port}/`, {maxRetries: 0}), {code: 'DEPTH_ZERO_SELF_SIGNED_CERT'});
+  t.after(() => Promise.all(servers.map(server => new Promise(resolve => {
+    server.close(resolve);
+  }))));
+  await assert.rejects(httpGet(`https://localhost:${servers[0].address().port}/`, {maxRetries: 0}), {code: 'DEPTH_ZERO_SELF_SIGNED_CERT'});
 });
 
 test('walkTree reports a file that changes while it is being hashed', async t => {
@@ -811,7 +819,7 @@ test('tar reader rejects non-octal numeric fields', () => {
   assert.throws(() => tar.readTar(block), /Invalid octal field/);
 });
 
-test('httpGet over HTTPS: trusted CA, and no downgrade to HTTP on redirect', async t => {
+test('httpGet over HTTPS: trusted CA, and no downgrade to HTTP on redirect', {skip: !hasOpenssl && 'OpenSSL is not installed'}, async t => {
   const https = require('node:https');
   const directory = tempDir(t);
   execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes', '-days', '1', '-subj', '/CN=127.0.0.1', '-addext', 'subjectAltName=IP:127.0.0.1', '-keyout', path.join(directory, 'key.pem'), '-out', path.join(directory, 'cert.pem')], {stdio: 'ignore'});
@@ -840,21 +848,15 @@ test('httpGet over HTTPS: trusted CA, and no downgrade to HTTP on redirect', asy
 });
 
 test('tar hard links resolve to the linked member; symlinks differ from files in manifests', t => {
-  const directory = tempDir(t);
-  writeFiles(directory, {'package/a.js': 'shared\n'});
-  fs.linkSync(path.join(directory, 'package/a.js'), path.join(directory, 'package/b.js'));
-  const archive = path.join(directory, 'x.tgz');
-  execFileSync('tar', ['-czf', archive, '--format=pax', '-C', directory, 'package']);
-  const files = tar.readGzipTarFiles(fs.readFileSync(archive), {stripFirstComponent: true});
+  const archive = makeTarGz(t, {'package/a.js': 'shared\n'}, {format: 'pax', hardlinks: {'package/b.js': 'package/a.js'}});
+  const files = tar.readGzipTarFiles(archive, {stripFirstComponent: true});
   assert.equal(files.get('a.js').toString(), 'shared\n');
   assert.equal(files.get('b.js').toString(), 'shared\n');
-  assert.ok(tar.readTar(zlib.gunzipSync(fs.readFileSync(archive))).some(entry => entry.type === '1'), 'stored as a hard link');
+  assert.ok(tar.readTar(zlib.gunzipSync(archive)).some(entry => entry.type === '1'), 'stored as a hard link');
   // Long link targets are carried in a pax header.
   const long = `package/${'d'.repeat(120)}`;
-  writeFiles(directory, {[`${long}/original.js`]: 'long\n'});
-  fs.linkSync(path.join(directory, long, 'original.js'), path.join(directory, long, 'copy.js'));
-  execFileSync('tar', ['-czf', archive, '--format=pax', '-C', directory, 'package']);
-  const longFiles = tar.readGzipTarFiles(fs.readFileSync(archive), {stripFirstComponent: true});
+  const longArchive = makeTarGz(t, {'package/a.js': 'shared\n', [`${long}/original.js`]: 'long\n'}, {format: 'pax', hardlinks: {[`${long}/copy.js`]: `${long}/original.js`}});
+  const longFiles = tar.readGzipTarFiles(longArchive, {stripFirstComponent: true});
   assert.equal(longFiles.get(`${'d'.repeat(120)}/copy.js`).toString(), 'long\n');
 
   const file = [{path: 'x', sha256: util.sha256('target')}];

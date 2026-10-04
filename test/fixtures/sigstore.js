@@ -109,14 +109,16 @@ const certificateEntry = certificate => ({rawBytes: certificate.der.toString('ba
 
 /**
  * A trusted root naming certificate authorities, logs and timestamp
- * authorities.
+ * authorities (a root of logs alone needs no openssl).
  */
 function trustedRootFor({ca, logs, tsa}) {
   return {
     mediaType: 'application/vnd.dev.sigstore.trustedroot+json;version=0.1',
-    certificateAuthorities: [{
-      uri: 'https://fulcio.test', certChain: {certificates: [certificateEntry(ca.intermediate), certificateEntry(ca.root)]}, validFor: {start: '2000-01-01T00:00:00Z'},
-    }],
+    certificateAuthorities: ca
+      ? [{
+        uri: 'https://fulcio.test', certChain: {certificates: [certificateEntry(ca.intermediate), certificateEntry(ca.root)]}, validFor: {start: '2000-01-01T00:00:00Z'},
+      }]
+      : [],
     tlogs: logs.map(log => ({
       baseUrl: log.baseUrl,
       hashAlgorithm: 'SHA2_256',

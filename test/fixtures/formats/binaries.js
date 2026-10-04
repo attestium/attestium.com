@@ -12,6 +12,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const {pathToFileURL} = require('node:url');
 const {execFileSync} = require('node:child_process');
 const {tempDir, writeFiles, which} = require('../../helpers');
 
@@ -35,11 +36,13 @@ function goProject(t) {
   const env = {
     ...process.env,
     ...GIT_ENV,
-    GOPROXY: `file://${path.join(root, 'proxy')}`,
+    GOPROXY: pathToFileURL(path.join(root, 'proxy')).href,
     GOSUMDB: 'off',
     GOFLAGS: '-mod=mod -modcacherw',
     GOTOOLCHAIN: 'local',
     GOWORK: 'off',
+    // ELF files on every system (Go builds Mach-O on macOS, PE on Windows).
+    GOOS: 'linux',
     CGO_ENABLED: '0',
     GOMODCACHE: path.join(root, 'modcache'),
     GOPATH: path.join(root, 'gopath'),

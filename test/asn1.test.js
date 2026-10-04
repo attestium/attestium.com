@@ -6,7 +6,8 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const asn1 = require('../lib/asn1');
-const {getAuthority, makeCertificate, signingCertificate} = require('./fixtures/sigstore');
+const {getAuthority, signingCertificate} = require('./fixtures/sigstore');
+const {hasOpenssl} = require('./helpers');
 
 /**
  * DER encoding of one element: tag byte(s), definite length, content.
@@ -149,7 +150,7 @@ test('time decodes UTCTime and GeneralizedTime', () => {
   }
 });
 
-test('certificateExtensions reads a real certificate', () => {
+test('certificateExtensions reads a real certificate', {skip: !hasOpenssl && 'OpenSSL is not installed'}, () => {
   const {ca} = getAuthority();
   const certificate = signingCertificate({repository: 'octo/app', commit: 'c'.repeat(40)});
   const extensions = asn1.certificateExtensions(certificate.der);
@@ -172,12 +173,20 @@ test('certificateExtensions reads an explicit non-critical flag', () => {
   assert.deepStrictEqual(extensions.get('2.5.29.19').value, sequence());
 });
 
-test('certificateExtensions of a version 1 certificate is empty', t => {
-  const {directory, ca} = getAuthority();
-  // Without an extension file openssl issues a version 1 certificate.
-  const v1 = makeCertificate(directory, {subject: '/CN=v1', issuer: ca.intermediate});
-  assert.strictEqual(new crypto.X509Certificate(v1.pem).subject, 'CN=v1');
-  assert.strictEqual(asn1.certificateExtensions(v1.der).size, 0);
+test('certificateExtensions of a version 1 certificate is empty', () => {
+  // A TBSCertificate without the version field (version 1), which cannot
+  // carry extensions: serial, signature algorithm, issuer, validity,
+  // subject, key.
+  const {privateKey, publicKey} = crypto.generateKeyPairSync('ec', {namedCurve: 'prime256v1'});
+  const ecdsaWithSha256 = sequence(hex('06 08 2a 86 48 ce 3d 04 03 02'));
+  const name = sequence(der(0x31, sequence(hex('06 03 55 04 03'), der(0x0C, 'v1'))));
+  const tbs = sequence(der(0x02, [1]), ecdsaWithSha256, name, sequence(der(0x17, '250101000000Z'), der(0x17, '350101000000Z')), name, publicKey.export({type: 'spki', format: 'der'}));
+  const signature = crypto.sign('sha256', tbs, privateKey);
+  const v1 = sequence(tbs, ecdsaWithSha256, der(0x03, Buffer.from([0]), signature));
+  const certificate = new crypto.X509Certificate(v1);
+  assert.strictEqual(certificate.subject, 'CN=v1');
+  assert.ok(certificate.verify(publicKey));
+  assert.strictEqual(asn1.certificateExtensions(v1).size, 0);
 });
 
 test('reads a real RFC 3161 timestamp response', () => {

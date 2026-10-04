@@ -3,7 +3,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const {promisify} = require('node:util');
 const crypto = require('node:crypto');
@@ -11,7 +10,7 @@ const {execFile, execFileSync} = require('node:child_process');
 const hex = require('../lib/ecosystems/hex');
 const {NoLockfileError, ReferenceStore} = require('../lib/ecosystems/common');
 const {
-  tempDir, writeFiles, startServer, makeTarGz, which,
+  tempDir, writeFiles, needsPosix, PATH_MAX, deepTempDir, unreadableEntry, startServer, makeTar, makeTarGz, which, hasOpenssl,
 } = require('./helpers');
 
 const sha256 = data => crypto.createHash('sha256').update(data).digest('hex');
@@ -25,7 +24,6 @@ function metadataConfig(name, version) {
  * VERSION, CHECKSUM, metadata.config and contents.tar.gz.
  */
 function hexTarball(t, {name, version, files, members = {}}) {
-  const staging = tempDir(t, 'attestium-hex-');
   const metadata = metadataConfig(name, version);
   const contents = makeTarGz(t, files);
   const inner = sha256(Buffer.concat([Buffer.from('3'), Buffer.from(metadata), contents]));
@@ -38,10 +36,7 @@ function hexTarball(t, {name, version, files, members = {}}) {
     }
   }
 
-  writeFiles(staging, outer);
-  const output = path.join(tempDir(t, 'attestium-hex-out-'), `${name}-${version}.tar`);
-  execFileSync('tar', ['-cf', output, '-C', staging, ...Object.keys(outer)]);
-  const tarball = fs.readFileSync(output);
+  const tarball = makeTar(outer, {format: 'ustar'});
   return {
     tarball, inner, outer: sha256(tarball), metadata,
   };
@@ -49,33 +44,6 @@ function hexTarball(t, {name, version, files, members = {}}) {
 
 function lockLine(name, version, {inner, outer}, repo = 'hexpm') {
   return `  "${name}": {:hex, :${name}, "${version}", "${inner}", [:mix], [{:dep, "~> 1.0", [hex: :dep, repo: "hexpm", optional: false]}], "${repo}"${outer ? `, "${outer}"` : ''}},`;
-}
-
-/**
- * A temporary directory that may hold paths longer than PATH_MAX (removed
- * with find, which does not build full paths).
- */
-function deepTempDir(t) {
-  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'attestium-deep-')));
-  t.after(() => {
-    execFileSync('find', [directory, '-delete']);
-  });
-  return directory;
-}
-
-/**
- * A file whose full path is longer than PATH_MAX, so it is listed but
- * cannot be opened.  Returns the directory holding it.
- */
-function unreadableEntry(parent) {
-  let directory = parent;
-  while (directory.length < 3900) {
-    directory = path.join(directory, 'd'.repeat(Math.min(200, 3950 - directory.length)));
-  }
-
-  fs.mkdirSync(directory, {recursive: true});
-  execFileSync('touch', ['f'.repeat(250)], {cwd: directory});
-  return directory;
 }
 
 test('detect finds deps/ next to mix.lock', t => {
@@ -90,7 +58,7 @@ test('detect finds deps/ next to mix.lock', t => {
   assert.deepEqual(hex.lockfiles, ['mix.lock']);
 });
 
-test('scan hashes each dependency, skipping build output, and reads its version', async t => {
+test('scan hashes each dependency, skipping build output, and reads its version', {skip: needsPosix}, async t => {
   const deps = path.join(tempDir(t), 'deps');
   writeFiles(deps, {
     'jason/hex_metadata.config': metadataConfig('jason', '1.4.4'),
@@ -119,6 +87,9 @@ test('scan reports a missing deps/ and unreadable files', async t => {
   const missing = await hex.scan(path.join(tempDir(t), 'deps'));
   assert.deepEqual(missing.packages, []);
   assert.deepEqual(missing.errors, [{path: '.', error: 'ENOENT'}]);
+  if (!PATH_MAX) {
+    return;
+  }
 
   const deps = path.join(deepTempDir(t), 'deps');
   writeFiles(deps, {'deep/mix.exs': ''});
@@ -256,7 +227,7 @@ test('compare without mix.lock fails every dependency', async () => {
   assert.equal(result.passed, false);
 });
 
-test('a Mix project fetched from a local Hex repository verifies', {skip: !(which('mix') && which('openssl')) && 'mix or openssl is not installed', timeout: 120_000}, async t => {
+test('a Mix project fetched from a local Hex repository verifies', {skip: !(which('mix') && hasOpenssl) && 'mix or OpenSSL is not installed', timeout: 120_000}, async t => {
   const work = tempDir(t);
   const environment = {
     ...process.env, HEX_HOME: path.join(work, 'hex-home'), MIX_ENV: 'dev',
@@ -313,7 +284,7 @@ test('a Mix project fetched from a local Hex repository verifies', {skip: !(whic
   assert.deepEqual(changed.findings[0].modified, ['lib/greet.ex']);
 });
 
-test('a dependency replaced by a link is not left out of the check', async t => {
+test('a dependency replaced by a link is not left out of the check', {skip: needsPosix}, async t => {
   const files = {'lib/greet.ex': 'defmodule Greet do end\n', 'mix.exs': 'defmodule Greet.MixProject do end\n'};
   const good = hexTarball(t, {name: 'greet', version: '0.1.0', files});
   const server = await startServer(t, {'/tarballs/greet-0.1.0.tar': {body: good.tarball}});

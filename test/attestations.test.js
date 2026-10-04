@@ -8,14 +8,16 @@ const path = require('node:path');
 const {
   SigstoreTrust, githubIdentity, githubAttestations, verifyGithubAttestation, npmProvenance, snappyDecompress, GITHUB_ISSUER,
 } = require('../lib/attestations');
-const {tempDir, startServer} = require('./helpers');
+const {tempDir, startServer, hasOpenssl} = require('./helpers');
 const fixture = require('./fixtures/sigstore');
 const {TufRepository} = require('./fixtures/tuf');
 
 const DATA = path.join(__dirname, 'fixtures/sigstore-data');
 const readJson = name => JSON.parse(fs.readFileSync(path.join(DATA, name), 'utf8'));
 const realRoot = readJson('trusted_root.json');
-const {trustedRoot} = fixture.getAuthority();
+// The private Sigstore's certificates are made with OpenSSL.
+const trustedRoot = hasOpenssl ? fixture.getAuthority().trustedRoot : null;
+const needsOpenssl = !trustedRoot && 'OpenSSL is not installed';
 
 /**
  * Npm's registry keys in the form its TUF target has.
@@ -124,8 +126,8 @@ test('githubIdentity builds the workflow certificate identity', () => {
 });
 
 test('SigstoreTrust uses given trust material, or the shipped TUF root', async () => {
-  const given = new SigstoreTrust({trustedRoot, npmKeys: npmKeysTarget()});
-  assert.strictEqual(await given.trustedRoot(), trustedRoot);
+  const given = new SigstoreTrust({trustedRoot: realRoot, npmKeys: npmKeysTarget()});
+  assert.strictEqual(await given.trustedRoot(), realRoot);
   assert.strictEqual(given.trustedRoot(), given.trustedRoot());
   const keys = await given.npmKeys();
   assert.strictEqual(keys['SHA256:jl3bwswu80PjjokCgh0o2w5c2U4LhQAE57gj9cz1kzA'].validUntil, Date.parse('2025-01-29T00:00:00.000Z'));
@@ -151,10 +153,10 @@ test('SigstoreTrust fetches the trusted root and npm keys through TUF', async t 
   await assert.rejects(trust.npmKeys(), /HTTP 404/);
 
   repository.publish({
-    targets: {'trusted_root.json': Buffer.from(JSON.stringify(trustedRoot))},
+    targets: {'trusted_root.json': Buffer.from(JSON.stringify(realRoot))},
     delegated: {'registry.npmjs.org': {paths: ['registry.npmjs.org/*'], targets: {'registry.npmjs.org/keys.json': Buffer.from(JSON.stringify(npmKeysTarget()))}}},
   });
-  assert.deepStrictEqual(await trust.trustedRoot(), trustedRoot);
+  assert.deepStrictEqual(await trust.trustedRoot(), realRoot);
   const keys = await trust.npmKeys();
   assert.deepStrictEqual(Object.keys(keys).sort(), ['SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U', 'SHA256:jl3bwswu80PjjokCgh0o2w5c2U4LhQAE57gj9cz1kzA']);
   assert.strictEqual(await trust.npmKeys(), keys);
@@ -199,7 +201,7 @@ test('githubAttestations lists the bundles GitHub stores', async t => {
   }
 });
 
-test('verifyGithubAttestation accepts the first bundle that verifies', async () => {
+test('verifyGithubAttestation accepts the first bundle that verifies', {skip: needsOpenssl}, async () => {
   const digest = crypto.createHash('sha256').update('release.tar.gz').digest('hex');
   const subjects = [{name: 'release.tar.gz', digest: {sha256: digest}}];
   const good = fixture.attest({
@@ -233,7 +235,7 @@ test('verifyGithubAttestation accepts the first bundle that verifies', async () 
   }), /no attestation found for this digest/);
 });
 
-test('verifyGithubAttestation: another repository calling the workflow as a reusable workflow', async () => {
+test('verifyGithubAttestation: another repository calling the workflow as a reusable workflow', {skip: needsOpenssl}, async () => {
   // Any repository can call a public repository's reusable workflow; the
   // certificate then names that workflow, but the caller's repository (and
   // code) as its source.
@@ -299,7 +301,7 @@ test('npmProvenance verifies real registry attestations', async t => {
   }), /signed with a key that is not trusted/);
 });
 
-test('npmProvenance without provenance', async t => {
+test('npmProvenance without provenance', {skip: needsOpenssl}, async t => {
   const digest = crypto.randomBytes(64).toString('hex');
   const {bundle} = fixture.makeBundle({
     statement: {_type: 'https://in-toto.io/Statement/v1', subject: [{name: 'pkg:npm/bare@1.0.0', digest: {sha512: digest}}], predicateType: 'https://slsa.dev/provenance/v1'},
@@ -327,7 +329,7 @@ test('npmProvenance without provenance', async t => {
   assert.deepStrictEqual(await npmProvenance({...input, name: 'bare', integrity: undefined}), {provenance: false, reason: 'no sha512 integrity'});
 });
 
-test('npmProvenance: only the registry key signs a publish attestation, and statement types must match', async t => {
+test('npmProvenance: only the registry key signs a publish attestation, and statement types must match', {skip: needsOpenssl}, async t => {
   const digest = crypto.randomBytes(64).toString('hex');
   const publish = 'https://github.com/npm/attestation/tree/main/specs/publish/v0.1';
   const statement = predicateType => ({

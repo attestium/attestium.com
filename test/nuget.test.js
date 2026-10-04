@@ -9,95 +9,12 @@ const {promisify} = require('node:util');
 const {execFile, execFileSync} = require('node:child_process');
 const nuget = require('../lib/ecosystems/nuget');
 const {NoLockfileError, ReferenceStore} = require('../lib/ecosystems/common');
-const {tempDir, writeFiles, startServer, which} = require('./helpers');
+const {
+  tempDir, writeFiles, needsPosix, startServer, makeZip, which, hasOpenssl,
+} = require('./helpers');
 
 const sha256 = data => crypto.createHash('sha256').update(data).digest('hex');
 const sha512 = data => crypto.createHash('sha512').update(data).digest('base64');
-
-const CRC_TABLE = Array.from({length: 256}, (_, n) => {
-  let c = n;
-  for (let k = 0; k < 8; k++) {
-    c = c & 1 ? 0xED_B8_83_20 ^ (c >>> 1) : c >>> 1;
-  }
-
-  return c >>> 0;
-});
-
-function crc32(data) {
-  let crc = 0xFF_FF_FF_FF;
-  for (const byte of data) {
-    crc = CRC_TABLE[(crc ^ byte) & 0xFF] ^ (crc >>> 8);
-  }
-
-  return (crc ^ 0xFF_FF_FF_FF) >>> 0;
-}
-
-/**
- * A stored (uncompressed) zip.  An entry's `descriptor` ('signed' or
- * 'unsigned') writes its sizes and CRC in a data descriptor after the data,
- * with or without the descriptor's optional signature.
- * @param {Array<{name: string, data: string|Buffer, descriptor?: string}>} entries
- * @param {string} [comment]
- * @returns {Buffer}
- */
-function makeZip(entries, comment = '') {
-  const locals = [];
-  const centrals = [];
-  let offset = 0;
-  for (const {name, data: raw, descriptor} of entries) {
-    const data = Buffer.from(raw);
-    const nameBytes = Buffer.from(name);
-    const crc = crc32(data);
-    const flags = descriptor ? 0x08 : 0;
-    const local = Buffer.alloc(30);
-    local.writeUInt32LE(0x04_03_4B_50, 0);
-    local.writeUInt16LE(20, 4);
-    local.writeUInt16LE(flags, 6);
-    local.writeUInt16LE(0x21, 12);
-    local.writeUInt32LE(descriptor ? 0 : crc, 14);
-    local.writeUInt32LE(descriptor ? 0 : data.length, 18);
-    local.writeUInt32LE(descriptor ? 0 : data.length, 22);
-    local.writeUInt16LE(nameBytes.length, 26);
-    const parts = [local, nameBytes, data];
-    if (descriptor) {
-      const trailer = Buffer.alloc(12);
-      trailer.writeUInt32LE(crc, 0);
-      trailer.writeUInt32LE(data.length, 4);
-      trailer.writeUInt32LE(data.length, 8);
-      if (descriptor === 'signed') {
-        parts.push(Buffer.from([0x50, 0x4B, 0x07, 0x08]));
-      }
-
-      parts.push(trailer);
-    }
-
-    const central = Buffer.alloc(46);
-    central.writeUInt32LE(0x02_01_4B_50, 0);
-    central.writeUInt16LE(20, 4);
-    central.writeUInt16LE(20, 6);
-    central.writeUInt16LE(flags, 8);
-    central.writeUInt16LE(0x21, 14);
-    central.writeUInt32LE(crc, 16);
-    central.writeUInt32LE(data.length, 20);
-    central.writeUInt32LE(data.length, 24);
-    central.writeUInt16LE(nameBytes.length, 28);
-    central.writeUInt32LE(offset, 42);
-    centrals.push(central, nameBytes);
-    const entry = Buffer.concat(parts);
-    locals.push(entry);
-    offset += entry.length;
-  }
-
-  const directory = Buffer.concat(centrals);
-  const end = Buffer.alloc(22);
-  end.writeUInt32LE(0x06_05_4B_50, 0);
-  end.writeUInt16LE(entries.length, 8);
-  end.writeUInt16LE(entries.length, 10);
-  end.writeUInt32LE(directory.length, 12);
-  end.writeUInt32LE(offset, 16);
-  end.writeUInt16LE(Buffer.byteLength(comment), 20);
-  return Buffer.concat([...locals, directory, end, Buffer.from(comment)]);
-}
 
 function nupkg(id, files) {
   return makeZip([
@@ -145,7 +62,7 @@ test('detect finds published application directories', t => {
   assert.deepEqual(nuget.lockfiles, ['packages.lock.json']);
 });
 
-test('scan lists assemblies and native libraries as packages', async t => {
+test('scan lists assemblies and native libraries as packages', {skip: needsPosix}, async t => {
   const directory = tempDir(t);
   writeFiles(directory, {
     'App.dll': 'app',
@@ -345,7 +262,7 @@ test('compare without packages.lock.json fails every library', async () => {
   assert.deepEqual(covered.findings.map(finding => finding.path), ['Acme.dll']);
 });
 
-test('a published .NET application with a signed package verifies', {skip: !(which('dotnet') && which('openssl')) && 'dotnet or openssl is not installed', timeout: 300_000}, async t => {
+test('a published .NET application with a signed package verifies', {skip: !(which('dotnet') && hasOpenssl) && 'dotnet or OpenSSL is not installed', timeout: 300_000}, async t => {
   const work = tempDir(t);
   const feed = path.join(work, 'feed');
   const environment = {
@@ -381,7 +298,13 @@ test('a published .NET application with a signed package verifies', {skip: !(whi
   execFileSync('openssl', ['pkcs12', '-export', '-out', 'cert.pfx', '-inkey', 'key.pem', '-in', 'cert.pem', '-passout', 'pass:test'], {cwd: work, stdio: 'ignore'});
   const packageFile = path.join(feed, 'Acme.Lib.1.0.0.nupkg');
   const unsigned = fs.readFileSync(packageFile);
-  await run('dotnet', ['nuget', 'sign', packageFile, '--certificate-path', 'cert.pfx', '--certificate-password', 'test']);
+  try {
+    await run('dotnet', ['nuget', 'sign', packageFile, '--certificate-path', 'cert.pfx', '--certificate-password', 'test']);
+  } catch (error) {
+    t.skip(`dotnet cannot sign packages here: ${String(error.stdout || error.message).trim().split('\n').pop()}`);
+    return;
+  }
+
   const signed = fs.readFileSync(packageFile);
   assert.ok(nuget.contentHash(signed) !== sha512(signed), 'the package is signed');
   await run('dotnet', ['publish', 'app', '-c', 'Release', '-o', path.join(work, 'app', 'publish'), '--configfile', 'nuget.config']);

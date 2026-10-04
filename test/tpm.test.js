@@ -7,7 +7,9 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const Tpm = require('../lib/tpm');
 const ima = require('../lib/ima');
-const {tempDir, hasTpmSimulator, startSwtpm, freePort} = require('./helpers');
+const {
+  tempDir, hasTpmSimulator, startSwtpm, freePort, which,
+} = require('./helpers');
 
 const nonce = () => crypto.randomBytes(32).toString('hex');
 
@@ -107,7 +109,7 @@ test('TPM input validation and unavailability', async t => {
   const port = await freePort();
   const closed = await new Tpm({tcti: `swtpm:host=127.0.0.1,port=${port}`, timeout: 10_000}).checkAvailability();
   assert.equal(closed.available, false);
-  assert.match(closed.reason, /tpm2_getcap failed/);
+  assert.match(closed.reason, which('tpm2_getcap') ? /tpm2_getcap failed/ : /^tpm2-tools not installed$/);
 
   const originalPath = process.env.PATH;
   process.env.PATH = tempDir(t);

@@ -18,7 +18,7 @@ const ReleaseVerification = require('../lib/release-verification');
 const {goBuildInfo, cargoAuditable} = require('../lib/elf');
 const {sha256} = require('../lib/util');
 const {
-  tempDir, writeFiles, startServer, makeTarGz, which,
+  tempDir, writeFiles, windows, needsPosix, startServer, makeTarGz, which,
 } = require('./helpers');
 const {
   hasGo, hasCargoAuditable, goProject, cargoProject,
@@ -60,7 +60,10 @@ test('ReferenceStore.memo computes once, persists to the cache and does not cach
   assert.equal(calls, 1);
   const file = path.join(cacheDir, `${sha256('a')}.json`);
   assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), {key: 'a', value: {value: 1}});
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  if (!windows) {
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  }
+
   assert.deepEqual(fs.readdirSync(cacheDir), [`${sha256('a')}.json`], 'no temporary files left');
 
   // Another run reads the cache.
@@ -388,7 +391,7 @@ async function pnpmInstall(t) {
   };
 }
 
-test('npm plugin: each pnpm link must point to the package the lockfile resolves its name to', async t => {
+test('npm plugin: each pnpm link must point to the package the lockfile resolves its name to', {skip: needsPosix}, async t => {
   const {modules, check, relink} = await pnpmInstall(t);
   const scan = await npm.scan(modules);
   assert.deepEqual(scan.links, []);
@@ -429,7 +432,7 @@ test('npm plugin: each pnpm link must point to the package the lockfile resolves
   assert.deepEqual(await retargeted('@scope/lodash', '.pnpm/is-number@7.0.0/node_modules/is-number'), ['@scope/lodash: points to is-number@7.0.0 (.pnpm/is-number@7.0.0/node_modules/is-number), where the lockfile has @scope/lodash']);
 });
 
-test('npm plugin: link checks without a pnpm lockfile, and scans that do not report link targets', async t => {
+test('npm plugin: link checks without a pnpm lockfile, and scans that do not report link targets', {skip: needsPosix}, async t => {
   const alpha = makePackage(t, 'alpha', '1.0.0', {'package.json': JSON.stringify({name: 'alpha', version: '1.0.0'}), 'index.js': 'alpha\n'});
   const {registryUrl} = await startRegistry(t, [alpha]);
   const release = new ReleaseVerification({registryUrl, retryDelay: 1, maxRetries: 0});
@@ -568,7 +571,7 @@ test('npm plugin: npm-shrinkwrap.json, and a lockfile named by the configuration
   assert.equal(npm.readLock(root).format, 'pnpm');
 });
 
-test('npm plugin reports links, bytecode caches and stray files', async t => {
+test('npm plugin reports links, bytecode caches and stray files', {skip: needsPosix}, async t => {
   const alpha = makePackage(t, 'alpha', '1.0.0', {'package.json': JSON.stringify({name: 'alpha', version: '1.0.0'}), 'index.js': 'alpha\n'});
   const {registryUrl} = await startRegistry(t, [alpha]);
   const root = tempDir(t);
@@ -644,6 +647,7 @@ test('go compareBuildInfo checks crafted build information', () => {
         path: 'example.com/local', version: 'v0.0.0', sum: null, replace: {path: '/abs/local', version: null, sum: null},
       },
       {path: 'example.com/tampered', version: 'v1.0.0', sum: 'h1:x='},
+      {path: 'example.com/unpinned', version: 'v2.0.0', sum: 'h1:y='},
     ],
     settings: {'vcs.revision': 'a'.repeat(40), '-trimpath': 'true'},
   };
@@ -651,11 +655,12 @@ test('go compareBuildInfo checks crafted build information', () => {
   const result = go.compareBuildInfo({info, lock, commit: 'a'.repeat(40)});
   assert.equal(result.passed, false);
   assert.deepEqual(result.summary, {
-    total: 4, verified: 2, bundled: 0, patched: 0, built: 0, failed: 1, unverifiable: 1, error: 0,
+    total: 5, verified: 2, bundled: 0, patched: 0, built: 0, failed: 2, unverifiable: 1, error: 0,
   });
   assert.deepEqual(result.findings.map(finding => [finding.path, finding.status, finding.reason]), [
     ['example.com/local', 'unverifiable', 'replaced by the local directory /abs/local'],
     ['example.com/tampered', 'failed', 'hash h1:x= differs from go.sum (h1:pinned=)'],
+    ['example.com/unpinned', 'failed', 'example.com/unpinned v2.0.0 is not in go.sum'],
   ]);
   assert.deepEqual(result.issues, []);
 
@@ -726,7 +731,11 @@ version = 4
 [[package]]
 name = "app"
 version = "0.1.0"
-dependencies = ["serde", "gitdep", "floating", "private", "nosum"]
+dependencies = ["serde", "gitdep", "floating", "private", "nosum", "helper"]
+
+[[package]]
+name = "helper"
+version = "0.2.0"
 
 [[package]]
 name = "serde"
@@ -797,6 +806,7 @@ test('cargo compareAuditable checks each crate against Cargo.lock', t => {
     lock,
     packages: [
       crate('app', '0.1.0', 'local', {root: true}),
+      crate('helper', '0.2.0', 'local'),
       crate('serde', '1.0.210', 'crates.io'),
       crate('sparse', '0.1.0', 'crates.io', {kind: 'build'}),
       crate('gitdep', '0.2.0', 'git'),
@@ -809,7 +819,7 @@ test('cargo compareAuditable checks each crate against Cargo.lock', t => {
   });
   assert.equal(result.passed, false);
   assert.deepEqual(result.summary, {
-    total: 8, verified: 4, bundled: 0, patched: 0, built: 0, failed: 2, unverifiable: 2, error: 0,
+    total: 9, verified: 5, bundled: 0, patched: 0, built: 0, failed: 2, unverifiable: 2, error: 0,
   });
   assert.deepEqual(result.findings.map(finding => [finding.path, finding.status, finding.reason]), [
     ['floating@0.3.0', 'unverifiable', 'Cargo.lock pins no commit for this git source'],

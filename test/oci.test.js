@@ -12,7 +12,7 @@ const oci = require('../lib/oci');
 const {isPrivateAddress} = require('../lib/http');
 const containers = require('../lib/containers');
 const {
-  tempDir, writeFiles, startServer, which, sleep,
+  tempDir, writeFiles, windows, startServer, which, hasOpenssl, sleep,
 } = require('./helpers');
 const {
   sha256, hasDocker, startRegistry, startContainer,
@@ -225,7 +225,7 @@ test('Registry: challenge failures, server errors and HTTPS registries', async t
   await assert.rejects(impatient.manifest(ref), /registry\.test requires authentication/);
 });
 
-test('Registry: an HTTPS registry with its own CA and a bearer challenge', {skip: !which('openssl')}, async t => {
+test('Registry: an HTTPS registry with its own CA and a bearer challenge', {skip: !hasOpenssl}, async t => {
   const directory = tempDir(t);
   execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-keyout', 'key.pem', '-out', 'cert.pem', '-days', '1', '-subj', '/CN=127.0.0.1', '-addext', 'subjectAltName=IP:127.0.0.1'], {cwd: directory, stdio: 'ignore'});
   const ca = fs.readFileSync(path.join(directory, 'cert.pem'));
@@ -354,21 +354,26 @@ test('decompressLayer: gzip, zstd and uncompressed layers', async t => {
     }
   }
 
-  // Without zstd in zlib (Node.js before 22.15), the zstd program decompresses.
-  const bin = tempDir(t);
-  // A stand-in zstd whose "frames" are the magic number and the raw data.
-  fs.writeFileSync(path.join(bin, 'zstd'), `#!${process.execPath}\nif (process.argv.slice(2).join(' ') !== '-d -c -q') process.exit(2);\nconst chunks = [];\nprocess.stdin.on('data', chunk => chunks.push(chunk)).on('end', () => process.stdout.write(Buffer.concat(chunks).subarray(4)));\n`, {mode: 0o755});
-  const failing = tempDir(t);
-  fs.writeFileSync(path.join(failing, 'zstd'), '#!/bin/sh\ncat >/dev/null\nexit 1\n', {mode: 0o755});
+  // Without zstd in zlib (Node.js before 22.15), the zstd program
+  // decompresses: a stand-in script here, run by its #! line (Windows runs
+  // scripts by their extension, so there only a missing program is tried).
   const {zstdDecompressSync} = zlib;
   const {PATH} = process.env;
   zlib.zstdDecompressSync = undefined;
   try {
-    process.env.PATH = `${bin}${path.delimiter}${PATH}`;
-    assert.deepEqual(oci.decompressLayer(Buffer.concat([magic, layer]), 'application/vnd.oci.image.layer.v1.tar+zstd'), layer);
-    assert.throws(() => oci.decompressLayer(Buffer.concat([magic, layer]), '', 10), /The layer expands to more than 10 bytes/);
-    process.env.PATH = `${failing}${path.delimiter}${PATH}`;
-    assert.throws(() => oci.decompressLayer(Buffer.concat([magic, layer]), ''), /zstd layers need Node\.js 22\.15 or later, or the zstd program/);
+    if (!windows) {
+      const bin = tempDir(t);
+      // A stand-in zstd whose "frames" are the magic number and the raw data.
+      fs.writeFileSync(path.join(bin, 'zstd'), `#!${process.execPath}\nif (process.argv.slice(2).join(' ') !== '-d -c -q') process.exit(2);\nconst chunks = [];\nprocess.stdin.on('data', chunk => chunks.push(chunk)).on('end', () => process.stdout.write(Buffer.concat(chunks).subarray(4)));\n`, {mode: 0o755});
+      const failing = tempDir(t);
+      fs.writeFileSync(path.join(failing, 'zstd'), '#!/bin/sh\ncat >/dev/null\nexit 1\n', {mode: 0o755});
+      process.env.PATH = `${bin}${path.delimiter}${PATH}`;
+      assert.deepEqual(oci.decompressLayer(Buffer.concat([magic, layer]), 'application/vnd.oci.image.layer.v1.tar+zstd'), layer);
+      assert.throws(() => oci.decompressLayer(Buffer.concat([magic, layer]), '', 10), /The layer expands to more than 10 bytes/);
+      process.env.PATH = `${failing}${path.delimiter}${PATH}`;
+      assert.throws(() => oci.decompressLayer(Buffer.concat([magic, layer]), ''), /zstd layers need Node\.js 22\.15 or later, or the zstd program/);
+    }
+
     process.env.PATH = tempDir(t);
     assert.throws(() => oci.decompressLayer(Buffer.concat([magic, layer]), ''), /zstd layers need/);
   } finally {

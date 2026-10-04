@@ -9,7 +9,9 @@ const zlib = require('node:zlib');
 const {execFileSync} = require('node:child_process');
 const rubygems = require('../lib/ecosystems/rubygems');
 const {ReferenceStore, NoLockfileError} = require('../lib/ecosystems/common');
-const {tempDir, writeFiles, startServer, makeTarGz, which} = require('./helpers');
+const {
+  tempDir, writeFiles, needsPosix, PATH_MAX, startServer, makeTarGz, which,
+} = require('./helpers');
 
 const hex = content => crypto.createHash('sha256').update(content).digest('hex');
 const {parseGemspec, GemspecError} = rubygems;
@@ -96,6 +98,15 @@ gem "${gem}", version
 load Gem.bin_path("${gem}", "${executable}", version)
 end
 `;
+
+// RubyGems 3.7 and later (Ruby 3.5 and 4.0) end the wrapper with
+// activate_and_load_bin_path.
+const binstubV37 = (gem, executable) => binstub(gem, executable).replace(/^if Gem\.respond_to[\s\S]*/m, `if Gem.respond_to?(:activate_and_load_bin_path)
+  Gem.activate_and_load_bin_path('${gem}', '${executable}', version)
+else
+  load Gem.activate_bin_path('${gem}', '${executable}', version)
+end
+`);
 
 // RubyGems 2.x wrote the version check differently.
 const binstubV2 = (gem, executable) => `#!/usr/bin/ruby2.5
@@ -253,6 +264,9 @@ test('parseGemspec rejects anything that could run code', () => {
 test('binstubTarget recognizes the wrappers RubyGems generates', () => {
   assert.deepEqual(rubygems.binstubTarget(binstub('demo', 'demo-cli')), {gem: 'demo', executable: 'demo-cli'});
   assert.deepEqual(rubygems.binstubTarget(binstubV2('rake', 'rake')), {gem: 'rake', executable: 'rake'});
+  assert.deepEqual(rubygems.binstubTarget(binstubV37('demo', 'demo-cli')), {gem: 'demo', executable: 'demo-cli'});
+  assert.equal(rubygems.binstubTarget(binstubV37('demo', 'demo').replace('bin_path(\'demo\'', 'bin_path(\'other\'')), null);
+  assert.equal(rubygems.binstubTarget(binstubV37('demo', 'demo').replace('else\n', 'else\n  system("id")\n')), null);
   assert.deepEqual(rubygems.binstubTarget(binstub('demo', 'demo').replace('Gem.use_gemdeps\n\n', '')), {gem: 'demo', executable: 'demo'});
   assert.equal(rubygems.binstubTarget(binstub('demo', 'demo').replace('require \'rubygems\'', 'require \'rubygems\'\nsystem("id")')), null);
   assert.equal(rubygems.binstubTarget(`${binstub('demo', 'demo')}\nsystem("id")\n`), null);
@@ -380,7 +394,7 @@ test('detect finds Bundler install directories', t => {
   assert.equal(rubygems.installRoot('/srv/app/vendor/bundle/ruby/3.3.0'), '/srv/app/vendor/bundle/ruby/3.3.0');
 });
 
-test('scan hashes gems, specifications, extensions, bin/ and plugins', async t => {
+test('scan hashes gems, specifications, extensions, bin/ and plugins', {skip: needsPosix}, async t => {
   const home = tempDir(t);
   writeFiles(home, {
     'gems/demo-1.0.0/lib/demo.rb': 'module Demo; end\n',
@@ -430,7 +444,7 @@ test('scan hashes gems, specifications, extensions, bin/ and plugins', async t =
   assert.deepEqual(result.meta.plugins, {'demo_plugin.rb': 'require "x"\n'});
 });
 
-test('scan reports a missing gem directory and unreadable directories', async t => {
+test('scan reports a missing gem directory and unreadable directories', {skip: !(PATH_MAX && which('bash')) && 'needs a path length limit and bash'}, async t => {
   const home = tempDir(t);
   const empty = await rubygems.scan(home);
   assert.deepEqual(empty.errors, [{path: 'gems', error: 'ENOENT'}]);

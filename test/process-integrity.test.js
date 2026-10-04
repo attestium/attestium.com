@@ -163,8 +163,9 @@ test('an inspector opened at runtime with SIGUSR1 is reported', {skip: !linux}, 
   const pi = new ProcessIntegrity();
   assert.deepEqual(pi.checkListeningSockets(proc.pid).listening, []);
   process.kill(proc.pid, 'SIGUSR1');
+  // A loaded machine may take seconds to open the inspector.
   let sockets = [];
-  for (let i = 0; i < 50 && sockets.length === 0; i++) {
+  for (let i = 0; i < 200 && sockets.length === 0; i++) {
     await sleep(50);
     sockets = pi.checkListeningSockets(proc.pid).listening;
   }
@@ -185,7 +186,7 @@ test('an inspector opened at runtime with SIGUSR1 is reported', {skip: !linux}, 
   assert.equal(configured.checkAll(custom.proc.pid).passed, true, 'configuring the port alone opens nothing');
   process.kill(custom.proc.pid, 'SIGUSR1');
   let opened = [];
-  for (let i = 0; i < 50 && opened.length === 0; i++) {
+  for (let i = 0; i < 200 && opened.length === 0; i++) {
     await sleep(50);
     opened = configured.checkListeningSockets(custom.proc.pid).listening;
   }
@@ -880,6 +881,8 @@ test('fixture /proc: a process in another root (container or chroot) is inspecte
   fs.mkdirSync(path.join(same, 'self'));
   fs.symlinkSync('/', path.join(same, 'self', 'root'));
   assert.equal(new ProcessIntegrity({procRoot: same})._fileRoot('4242'), '');
+  assert.equal(new ProcessIntegrity({procRoot: same})._existsIn('4242', __filename), true);
+  assert.equal(new ProcessIntegrity({procRoot: same})._existsIn('4242', path.join(__dirname, 'missing')), false);
   assert.equal(ProcessIntegrity.inRoot('', '/x'), '/x');
   assert.equal(ProcessIntegrity.inRoot('/proc/4242/root', '/x'), '/proc/4242/root/x');
 });

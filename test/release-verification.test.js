@@ -8,7 +8,9 @@ const crypto = require('node:crypto');
 const {execFileSync} = require('node:child_process');
 const ReleaseVerification = require('../lib/release-verification');
 const {sha256} = require('../lib/util');
-const {tempDir, writeFiles, startServer, makeTarGz} = require('./helpers');
+const {
+  tempDir, writeFiles, windows, needsPosix, startServer, makeTarGz, which,
+} = require('./helpers');
 
 const VERSION = 'v1.2.3';
 const NODE_BINARY = Buffer.from('#!/bin/sh\necho official node binary\n');
@@ -148,7 +150,7 @@ test('verifyNodeRelease compares with the binary inside the official archive', a
   assert.equal((await rv.verifyNodeRelease({...target, execPath: good})).passed, true);
 });
 
-test('SHASUMS256.txt must carry a valid signature when a keyring is configured', async t => {
+test('SHASUMS256.txt must carry a valid signature when a keyring is configured', {skip: !(which('gpg') && which('gpgv')) && 'gpg is not installed'}, async t => {
   const upstream = await startUpstream(t, []);
   const home = tempDir(t);
   const environment = {...process.env, GNUPGHOME: home};
@@ -180,7 +182,7 @@ test('SHASUMS256.txt must carry a valid signature when a keyring is configured',
   } catch {}
 });
 
-test('installed packages are compared with lockfile-pinned registry tarballs (pnpm layout)', async t => {
+test('installed packages are compared with lockfile-pinned registry tarballs (pnpm layout)', {skip: needsPosix}, async t => {
   const alpha = makePackage(t, 'alpha', '1.0.0', {'package.json': JSON.stringify({name: 'alpha', version: '1.0.0'}), 'index.js': 'alpha\n'});
   const beta = makePackage(t, '@scope/beta', '2.0.0', {'package.json': JSON.stringify({name: '@scope/beta', version: '2.0.0'}), 'lib/beta.js': 'beta\n'});
   const bundler = makePackage(t, 'bundler', '1.0.0', {
@@ -317,7 +319,7 @@ test('installed packages are compared with lockfile-pinned registry tarballs (pn
   assert.deepEqual(policy.built, ['native']);
 });
 
-test('npm package-lock.json layout, registry fallback, and global packages', async t => {
+test('npm package-lock.json layout, registry fallback, and global packages', {skip: needsPosix}, async t => {
   const alpha = makePackage(t, 'alpha', '1.0.0', {'package.json': JSON.stringify({name: 'alpha', version: '1.0.0'}), 'index.js': 'alpha\n'});
   const aliased = makePackage(t, '@real/name', '4.0.0', {'package.json': JSON.stringify({name: '@real/name', version: '4.0.0'})});
   const pm2 = makePackage(t, 'pm2', '5.0.0', {'package.json': JSON.stringify({name: 'pm2', version: '5.0.0'}), 'bin/pm2': 'pm2\n'});
@@ -601,13 +603,19 @@ test('global package defaults', async t => {
   assert.equal((await rv.verifyGlobalPackage(path.join(globalDir, '.hidden'))).details.error, 'Not a package directory');
   install(path.join(globalDir, 'solo'), {'package.json': JSON.stringify({name: 'solo', version: '1.0.0'})});
   const solo = await rv.verifyGlobalPackage(path.join(globalDir, 'solo'));
-  assert.match(solo.details.nodeArchiveError, /HTTP 404/, 'defaults to the running Node.js release');
+  if (windows) {
+    // Npm of a Windows release is checked against the registry, not the zip.
+    assert.equal(solo.details.nodeArchiveError, undefined);
+  } else {
+    assert.match(solo.details.nodeArchiveError, /HTTP 404/, 'defaults to the running Node.js release');
+  }
+
   const report = await rv.verifyAll({globalDir, checkNode: false, modules: false});
   assert.deepEqual(report.checks, {});
   assert.equal(report.passed, false, 'nothing verified is not a pass');
 });
 
-test('pnpm patches are applied to the reference exactly; structural scan errors fail even when packages match', async t => {
+test('pnpm patches are applied to the reference exactly; structural scan errors fail even when packages match', {skip: !which('git') && 'git is not installed'}, async t => {
   const pkg = makePackage(t, 'addsfile', '1.0.0', {'package.json': JSON.stringify({name: 'addsfile', version: '1.0.0'}), 'index.js': 'x\n', 'old.js': 'old\n'});
   const upstream = await startUpstream(t, [pkg]);
   const rv = new ReleaseVerification({registryUrl: upstream.registryUrl, retryDelay: 1});

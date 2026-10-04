@@ -7,7 +7,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const evidence = require('../lib/evidence');
 const {digestOf} = require('../lib/util');
-const {tempDir, writeFiles} = require('./helpers');
+const {
+  tempDir, writeFiles, needsPosix, PATH_MAX,
+} = require('./helpers');
 
 const sha = text => crypto.createHash('sha256').update(text).digest('hex');
 const COMMIT = 'c'.repeat(40);
@@ -308,7 +310,7 @@ test('the digest\'s canonical JSON: SPEC.md edge cases', () => {
   assert.throws(() => digestOf({holes}), /undefined inside an array/);
 });
 
-test('createManifest lists files, modes and symbolic links', async t => {
+test('createManifest lists files, modes and symbolic links', {skip: needsPosix}, async t => {
   const directory = tempDir(t);
   writeFiles(directory, {
     'server.js': 'console.log(1)\n',
@@ -344,7 +346,7 @@ test('createManifest requires a repository and full commit', async () => {
   }
 });
 
-test('createManifest fails when files cannot be read', async t => {
+test('createManifest fails when files cannot be read', {skip: !PATH_MAX && 'paths have no length limit here'}, async t => {
   // A directory nested deeper than the system's path limit cannot be
   // listed, even by root.
   const directory = tempDir(t);

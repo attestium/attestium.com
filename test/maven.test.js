@@ -3,18 +3,18 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const {promisify} = require('node:util');
-const {execFile, execFileSync} = require('node:child_process');
+const {execFile} = require('node:child_process');
 const proxyquire = require('proxyquire');
 const maven = require('../lib/ecosystems/maven');
 const {NoLockfileError, ReferenceStore} = require('../lib/ecosystems/common');
-const {tempDir, writeFiles, startServer, which} = require('./helpers');
+const {
+  tempDir, writeFiles, needsPosix, PATH_MAX, deepTempDir, unreadableEntry, startServer, makeZip, which,
+} = require('./helpers');
 
 const sha256 = data => crypto.createHash('sha256').update(data).digest('hex');
-const hasZip = which('zip');
 const hasJar = which('jar');
 
 function pomProperties(groupId, artifactId, version) {
@@ -22,20 +22,11 @@ function pomProperties(groupId, artifactId, version) {
 }
 
 /**
- * A jar (a zip) holding `files`, made with the zip or jar command.
+ * A jar (a zip) holding `files`.
  * @returns {Buffer}
  */
 function makeJar(t, files) {
-  const staging = tempDir(t, 'attestium-jar-');
-  writeFiles(staging, files);
-  const output = path.join(tempDir(t, 'attestium-jar-out-'), 'out.jar');
-  if (hasZip) {
-    execFileSync('zip', ['-q', '-X', '-r', output, '.'], {cwd: staging});
-  } else {
-    execFileSync('jar', ['cf', output, '-C', staging, '.'], {stdio: 'ignore'});
-  }
-
-  return fs.readFileSync(output);
+  return makeZip(Object.entries(files).map(([name, data]) => ({name, data})));
 }
 
 function libraryJar(t, coordinates, extra = {}) {
@@ -46,16 +37,6 @@ function libraryJar(t, coordinates, extra = {}) {
     ...extra,
   });
 }
-
-function deepTempDir(t) {
-  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'attestium-deep-')));
-  t.after(() => {
-    execFileSync('find', [directory, '-delete']);
-  });
-  return directory;
-}
-
-const cannotBuildJars = !(hasZip || hasJar) && 'zip or jar is not installed';
 
 test('detect finds the directories builds copy dependency jars into', t => {
   const root = tempDir(t);
@@ -84,7 +65,7 @@ test('detect finds the directories builds copy dependency jars into', t => {
   assert.deepEqual(maven.lockfiles, ['gradle/verification-metadata.xml', 'lockfile.json']);
 });
 
-test('coordinates reads the one pom.properties a jar declares', {skip: cannotBuildJars}, t => {
+test('coordinates reads the one pom.properties a jar declares', t => {
   assert.deepEqual(maven.coordinates(libraryJar(t, 'org.example:core:1.0')), {groupId: 'org.example', artifactId: 'core', version: '1.0'});
   const spaced = makeJar(t, {'META-INF/maven/g/a/pom.properties': ' groupId : g\r\nartifactId=a\r\n# comment\r\nversion= 2.0 \r\n'});
   assert.deepEqual(maven.coordinates(spaced), {groupId: 'g', artifactId: 'a', version: '2.0'});
@@ -95,7 +76,7 @@ test('coordinates reads the one pom.properties a jar declares', {skip: cannotBui
   assert.equal(maven.coordinates(Buffer.from('not a zip')), null);
 });
 
-test('scan hashes each jar and lists everything else', {skip: cannotBuildJars}, async t => {
+test('scan hashes each jar and lists everything else', {skip: needsPosix}, async t => {
   const directory = tempDir(t);
   const core = libraryJar(t, 'org.example:core:1.0');
   const plain = makeJar(t, {'x/X.class': 'x'});
@@ -125,15 +106,13 @@ test('scan reports a missing directory and jars it cannot read', async t => {
   assert.deepEqual(missing.errors, [{path: '.', error: 'ENOENT'}]);
   assert.deepEqual(missing.packages, []);
 
-  // The directory is readable, but its path with the jar name is longer than PATH_MAX.
-  let directory = deepTempDir(t);
-  while (directory.length < 3900) {
-    directory = path.join(directory, 'd'.repeat(Math.min(200, 3950 - directory.length)));
+  if (!PATH_MAX) {
+    return;
   }
 
-  fs.mkdirSync(directory, {recursive: true});
+  // The directory is readable, but its path with the jar name is longer than PATH_MAX.
   const name = `${'j'.repeat(240)}.jar`;
-  execFileSync('touch', [name], {cwd: directory});
+  const directory = unreadableEntry(deepTempDir(t), name);
   const result = await maven.scan(directory);
   assert.deepEqual(result.errors, [{path: name, error: 'ENAMETOOLONG'}]);
   assert.deepEqual(result.packages, []);
@@ -260,7 +239,7 @@ test('readLock prefers Gradle verification metadata, then maven-lockfile', t => 
   assert.throws(() => maven.readLock(repo, {lockfile: 'sub/lockfile.json'}), /\(sub\/lockfile\.json\)/);
 });
 
-test('compare checks pinned jars, and others against Maven Central', {skip: cannotBuildJars}, async t => {
+test('compare checks pinned jars, and others against Maven Central', {skip: needsPosix}, async t => {
   const core = libraryJar(t, 'org.example:core:1.0');
   const util = libraryJar(t, 'org.example.util:util:2.0');
   const other = libraryJar(t, 'org.example:other:1.0');
@@ -313,7 +292,7 @@ test('compare checks pinned jars, and others against Maven Central', {skip: cann
   assert.equal(server.requests.filter(request => request.url.endsWith('/util-2.0.jar')).length, 1);
 });
 
-test('compare without a lock checks every jar against Maven Central', {skip: cannotBuildJars}, async t => {
+test('compare without a lock checks every jar against Maven Central', async t => {
   const core = libraryJar(t, 'org.example:core:1.0');
   const server = await startServer(t, {'/org/example/core/1.0/core-1.0.jar': {body: core}});
   const directory = tempDir(t);

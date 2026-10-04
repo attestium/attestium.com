@@ -8,7 +8,7 @@ const path = require('node:path');
 const {
   TufClient, TufError, canonicalJson, verifyThreshold, checkHashes, matchPath,
 } = require('../lib/tuf');
-const {tempDir, startServer} = require('./helpers');
+const {tempDir, windows, startServer} = require('./helpers');
 const {
   TufRepository, makeKey, signMetadata, keyMap, roleOf,
 } = require('./fixtures/tuf');
@@ -241,7 +241,9 @@ test('the cache keeps the newest root and prevents timestamp rollback', async t 
   assert.strictEqual(JSON.parse(fs.readFileSync(path.join(cacheDir, '2.root.json'), 'utf8')).signed.version, 2);
   assert.strictEqual(JSON.parse(fs.readFileSync(path.join(cacheDir, 'timestamp.json'), 'utf8')).signed.version, 2);
   assert.strictEqual(JSON.parse(fs.readFileSync(path.join(cacheDir, 'snapshot.json'), 'utf8')).signed.version, 2);
-  assert.strictEqual(fs.statSync(path.join(cacheDir, '2.root.json')).mode & 0o777, 0o600);
+  if (!windows) {
+    assert.strictEqual(fs.statSync(path.join(cacheDir, '2.root.json')).mode & 0o777, 0o600);
+  }
 
   // The cached root is trusted without fetching version 2 again.
   const second = server.routes['/2.root.json'];

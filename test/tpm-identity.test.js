@@ -7,7 +7,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const {execFileSync} = require('node:child_process');
 const identity = require('../lib/tpm-identity');
-const {tempDir, which} = require('./helpers');
+const {tempDir, hasOpenssl} = require('./helpers');
 
 const ALG = {
   RSA: 0x00_01, SHA1: 0x00_04, SHA256: 0x00_0B, NULL: 0x00_10, ECC: 0x00_23, AES: 0x00_06, CFB: 0x00_43, RSASSA: 0x00_14, KDF1: 0x00_20,
@@ -202,7 +202,7 @@ function makeCa(t, {expired = false} = {}) {
   };
 }
 
-test('verifyEkCertificate: chains, keys and CA validity', {skip: !which('openssl')}, t => {
+test('verifyEkCertificate: chains, keys and CA validity', {skip: !hasOpenssl}, t => {
   const {
     root, intermediate, endEntity, noCertSign, noKeyUsage, certificate, ekKey,
   } = makeCa(t);

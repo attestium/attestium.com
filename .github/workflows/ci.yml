@@ -51,9 +51,15 @@ jobs:
       - run: npm install -g pnpm@9
       - run: pnpm install --frozen-lockfile
 
-      # c8 enforces 100% statement, branch, function and line coverage of lib/.
+      # The container tests run this image and serve it from a local registry.
+      - name: Pull the test image
+        run: docker pull alpine:3.20
+
+      # c8 enforces 100% statement, branch, function and line coverage of
+      # lib/. The tests run as root, as the attester does: some need other
+      # users' files, a chroot, containers or other users' processes.
       - name: Test with coverage
-        run: pnpm run coverage
+        run: sudo env "PATH=$PATH" pnpm run coverage
 
       - name: Upload coverage
         if: matrix.node-version == '22.x'
@@ -68,6 +74,26 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           file: coverage/lcov.info
+
+  # macOS and Windows: tests of Linux features (/proc, containers, TPM)
+  # skip, and on Windows so do tests of POSIX files and Unix tools.
+  platforms:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.x
+      - run: npm install -g pnpm@9
+      - run: pnpm install --frozen-lockfile
+      - run: node --test
 
   security:
     name: Dependency audit

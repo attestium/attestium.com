@@ -404,6 +404,11 @@ test('JVM, Ruby, .NET, BEAM, PHP, Perl, Deno and Bun: option parsing', () => {
   assert.deepEqual(runtimes.inspectRuntime('jvm', {environment: {}, cmdline: ['java', '-jar', '/app.jar', '-javaagent:x']}).findings, []);
   assert.deepEqual(runtimes.inspectRuntime('jvm', {environment: {_JAVA_OPTIONS: '-agentlib:jdwp=transport=dt_socket,address=8000'}, cmdline: null}).ports, [8000]);
   assert.equal(runtimes.inspectRuntime('jvm', {environment: {}, cmdline: ['java', '-XX:+DisableAttachMechanism', 'Main']}).extra.attachDisabled, true);
+  assert.deepEqual(inspect('jvm', {JDK_JAVA_OPTIONS: '-Dcom.sun.management.jmxremote.port=9010 -XX:OnOutOfMemoryError=/bin/restart'}, null), [
+    'critical jvm-remote-management JDK_JAVA_OPTIONS: -Dcom.sun.management.jmxremote.port=9010',
+    'warning jvm-on-error-command JDK_JAVA_OPTIONS: -XX:OnOutOfMemoryError=/bin/restart',
+  ]);
+  assert.deepEqual(runtimes.inspectRuntime('jvm', {environment: {JDK_JAVA_OPTIONS: '-Dcom.sun.management.jmxremote.port=9010'}, cmdline: null}).ports, [9010]);
 
   assert.deepEqual(inspect('ruby', {RUBY_DEBUG_OPEN: 'true', RUBY_DEBUG_PORT: '12345', RUBYOPT: '-W0 -I/r'}, ['ruby', '-x/tmp', 'app.rb']), [
     'critical RUBYOPT-include -I /r',
@@ -411,6 +416,12 @@ test('JVM, Ruby, .NET, BEAM, PHP, Perl, Deno and Bun: option parsing', () => {
   ]);
   assert.deepEqual(runtimes.inspectRuntime('ruby', {environment: {RUBY_DEBUG_OPEN: '1'}, cmdline: null}).ports, []);
   assert.deepEqual(runtimes.inspectRuntime('ruby', {environment: {RUBY_DEBUG_OPEN: '1', RUBY_DEBUG_PORT: '4000'}, cmdline: null}).ports, [4000]);
+  assert.deepEqual(inspect('ruby', {RUBYOPT: '-rdebug/open', RUBYLIB: '/evil'}, ['ruby', '-rjson', '-e', 'puts 1', 'app.rb']), [
+    'critical argv-require -r json',
+    'critical argv-code puts 1',
+    'critical debugger -r debug/open',
+    'critical RUBYLIB /evil',
+  ]);
 
   assert.deepEqual(inspect('dotnet', {
     DOTNET_STARTUP_HOOKS: '/hook.dll', CORECLR_ENABLE_PROFILING: '1', CORECLR_PROFILER_PATH: '/p.so', COMPlus_DiagnosticPorts: '/tmp/port', DOTNET_ADDITIONAL_DEPS: '/d',
@@ -428,6 +439,9 @@ test('JVM, Ruby, .NET, BEAM, PHP, Perl, Deno and Bun: option parsing', () => {
     'critical ERL_ZFLAGS-pa -pa',
   ]);
   assert.deepEqual(inspect('beam', {}, null), []);
+  const node = runtimes.inspectRuntime('beam', {environment: {ERL_LIBS: '/opt/libs'}, cmdline: ['beam.smp', '--', '-sname', 'worker']});
+  assert.deepEqual(node.findings.map(finding => `${finding.severity} ${finding.type}`), ['critical ERL_LIBS', 'warning beam-distribution']);
+  assert.equal(node.extra.distributed, true);
 
   assert.deepEqual(inspect('php', {PHPRC: '/etc/x'}, ['php-fpm8.3', '-dextension=evil.so', '-d', 'memory_limit=1G', '-c', '/i.ini', '-z', '/z.so', '-B', 'code', '-f', 'app.php', '-r', 'ignored']), [
     'critical PHPRC /etc/x',
@@ -436,6 +450,7 @@ test('JVM, Ruby, .NET, BEAM, PHP, Perl, Deno and Bun: option parsing', () => {
     'critical argv-zend-extension -z /z.so',
     'critical argv-code -B code',
   ]);
+  assert.deepEqual(inspect('php', {PHP_INI_SCAN_DIR: ''}, ['php', '-r', 'evil();']), ['critical argv-code -r evil();']);
 
   assert.deepEqual(inspect('perl', {PERL5DB: 'BEGIN {evil()}', PERLLIB: '/l', PERL5OPT: '-d:NYTProf -I/i'}, ['perl', '-I', '/inc', '-ne', 'print', 'file']), [
     'critical argv-include -I/inc',

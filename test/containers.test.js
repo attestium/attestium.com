@@ -8,7 +8,9 @@ const http = require('node:http');
 const crypto = require('node:crypto');
 const {execFileSync} = require('node:child_process');
 const containers = require('../lib/containers');
-const {tempDir, writeFiles, sleep} = require('./helpers');
+const {
+  tempDir, writeFiles, windows, needsPosix, sleep,
+} = require('./helpers');
 const {sha256, hasDocker, startContainer} = require('./system-helpers');
 
 const linux = process.platform === 'linux';
@@ -106,7 +108,7 @@ test('parseMountinfo, rootOverlay and externalMounts', () => {
   assert.equal(containers.rootOverlay(containers.parseMountinfo('1 0 8:1 / /data rw - ext4 /dev/sda1 rw')), null);
 });
 
-test('walkRootfs: the root filesystem through /proc/<pid>/root, without other mounts', async t => {
+test('walkRootfs: the root filesystem through /proc/<pid>/root, without other mounts', {skip: needsPosix}, async t => {
   const procRoot = fakeProc(t, 4242, {
     mountinfo: MOUNTINFO,
     'root/bin/sh': '#!/bin/sh\n',
@@ -219,7 +221,7 @@ test('walkUpper: a file that cannot be hashed is reported', {skip: !(linux && is
   assert.match(result.errors[0].error, /File changed while hashing/);
 });
 
-test('unixGetJson and inspectDocker: the Docker Engine API', async t => {
+test('unixGetJson and inspectDocker: the Docker Engine API', {skip: windows && 'the Docker Engine API is on a Unix socket'}, async t => {
   const descriptor = {digest: `sha256:${'1'.repeat(64)}`, platform: {architecture: 'arm64', os: 'linux'}};
   const answers = {
     '/containers/full/json': {

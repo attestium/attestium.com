@@ -7,9 +7,8 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const confidential = require('../lib/confidential');
 const {snpReport, chain} = require('./fixtures/confidential');
-const {tempDir, writeFiles, which} = require('./helpers');
+const {tempDir, writeFiles, hasOpenssl} = require('./helpers');
 
-const hasOpenssl = which('openssl');
 const samples = path.join(__dirname, 'fixtures', 'confidential');
 const sample = name => fs.readFileSync(path.join(samples, name));
 
@@ -135,7 +134,7 @@ test('collectReport: a report entry created and removed in configfs', t => {
   // removes the entry with its attributes.
   const created = [];
   const {mkdirSync, writeFileSync, rmdirSync} = fs;
-  const inRoot = file => typeof file === 'string' && file.startsWith(`${root}/`);
+  const inRoot = file => typeof file === 'string' && file.startsWith(`${root}${path.sep}`);
   t.mock.method(fs, 'mkdirSync', (file, ...rest) => {
     mkdirSync(file, ...rest);
     if (inRoot(file)) {

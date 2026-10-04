@@ -9,7 +9,9 @@ const {execFileSync} = require('node:child_process');
 const pypi = require('../lib/ecosystems/pypi');
 const {ReferenceStore, NoLockfileError} = require('../lib/ecosystems/common');
 const {crc32} = require('../lib/zip');
-const {tempDir, writeFiles, startServer, which} = require('./helpers');
+const {
+  tempDir, writeFiles, windows, needsPosix, PATH_MAX, startServer, which,
+} = require('./helpers');
 
 const hex = content => crypto.createHash('sha256').update(content).digest('hex');
 const recordHash = content => crypto.createHash('sha256').update(content).digest('base64url');
@@ -431,7 +433,7 @@ function installDistribution(site, {name, version, files = {}, record = [], meta
   fs.writeFileSync(path.join(site, distInfo, 'RECORD'), `${rows.join('\n')}\n`);
 }
 
-test('scan hashes each distribution\'s RECORD and reports what no RECORD claims', async t => {
+test('scan hashes each distribution\'s RECORD and reports what no RECORD claims', {skip: needsPosix}, async t => {
   const venv = tempDir(t);
   const site = path.join(venv, 'lib/python3.12/site-packages');
   writeFiles(venv, {
@@ -548,7 +550,7 @@ test('scan hashes each distribution\'s RECORD and reports what no RECORD claims'
   assert.equal(meta.bin.activate, hex('deactivate () {}\n'));
 });
 
-test('scan reports a bin entry it cannot hash, a missing site-packages and unreadable directories', async t => {
+test('scan reports a bin entry it cannot hash, a missing site-packages and unreadable directories', {skip: !(PATH_MAX && which('bash')) && 'needs a path length limit and bash'}, async t => {
   const venv = tempDir(t);
   const site = path.join(venv, 'lib/python3.12/site-packages');
   writeFiles(venv, {'pyvenv.cfg': 'home = /usr/bin\n', 'bin/subdir/x': '', 'lib/python3.12/site-packages/.keep': ''});
@@ -1096,13 +1098,23 @@ function seedWheels() {
 
 const seeds = python ? seedWheels() : [];
 
-test('a pip-installed virtual environment verifies against its requirements file', {skip: seeds.length === 0 && 'python3 with ensurepip is not installed'}, async t => {
+// Environments on Windows keep programs in Scripts\ and packages in Lib\.
+const venvLayout = windows && 'Windows virtual environments have another layout';
+
+test('a pip-installed virtual environment verifies against its requirements file', {skip: (seeds.length === 0 && 'python3 with ensurepip is not installed') || venvLayout}, async t => {
   const project = tempDir(t);
   const dist = path.join(project, 'dist');
   const wheel = demoWheel();
   writeFiles(dist, {[wheel.filename]: wheel.buffer});
   writeFiles(project, {'requirements.txt': `demo==1.0 \\\n    --hash=sha256:${wheel.sha256}\n`});
-  run(python, ['-m', 'venv', path.join(project, '.venv')]);
+  try {
+    run(python, ['-m', 'venv', path.join(project, '.venv')]);
+  } catch (error) {
+    // Some builds cannot seed pip into an environment (ensurepip fails).
+    t.skip(`python3 -m venv fails: ${String(error.stderr || error.message).trim().split('\n').pop()}`);
+    return;
+  }
+
   run(path.join(project, '.venv/bin/python'), ['-m', 'pip', 'install', '--no-index', '--find-links', dist, '--require-hashes', '-r', path.join(project, 'requirements.txt')]);
 
   const registry = await startRegistry(t);
@@ -1133,7 +1145,7 @@ test('a pip-installed virtual environment verifies against its requirements file
   assert.deepEqual(issue(result, /bin directory/).items, ['bin/evil']);
 });
 
-test('a uv-installed virtual environment verifies against uv.lock and uv\'s start-up hook', {skip: !(python && which('uv')) && 'uv is not installed'}, async t => {
+test('a uv-installed virtual environment verifies against uv.lock and uv\'s start-up hook', {skip: (!(python && which('uv')) && 'uv is not installed') || venvLayout}, async t => {
   const project = tempDir(t);
   const dist = path.join(project, 'dist');
   const wheel = demoWheel();

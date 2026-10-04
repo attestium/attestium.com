@@ -3,7 +3,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const {promisify} = require('node:util');
 const {execFile, execFileSync} = require('node:child_process');
@@ -11,7 +10,9 @@ const composer = require('../lib/ecosystems/composer');
 const {GitTrees} = require('../lib/git-trees');
 const {NoLockfileError, ReferenceStore} = require('../lib/ecosystems/common');
 const {gitBlobId} = require('../lib/file-tree');
-const {tempDir, writeFiles, which} = require('./helpers');
+const {
+  tempDir, writeFiles, needsPosix, PATH_MAX, deepTempDir, unreadableEntry, which,
+} = require('./helpers');
 
 const hasGit = which('git');
 
@@ -44,26 +45,6 @@ function archiveInto(repository, commit, target) {
   execFileSync('tar', ['-xf', '-', '-C', target], {input: archive});
 }
 
-function deepTempDir(t) {
-  const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'attestium-deep-')));
-  t.after(() => {
-    execFileSync('find', [directory, '-delete']);
-  });
-  return directory;
-}
-
-/** A file whose full path is longer than PATH_MAX: listed, but unreadable. */
-function unreadableEntry(parent) {
-  let directory = parent;
-  while (directory.length < 3900) {
-    directory = path.join(directory, 'd'.repeat(Math.min(200, 3950 - directory.length)));
-  }
-
-  fs.mkdirSync(directory, {recursive: true});
-  execFileSync('touch', ['f'.repeat(250)], {cwd: directory});
-  return directory;
-}
-
 const LIBRARY = {
   'composer.json': '{"name": "acme/lib", "version": "1.2.0"}\n',
   'src/A.php': '<?php\nnamespace Acme;\nclass A {}\n',
@@ -85,7 +66,7 @@ test('detect finds vendor/ next to composer.lock', t => {
   assert.equal(composer.label, 'Composer');
 });
 
-test('scan groups files by package and separates generated files', async t => {
+test('scan groups files by package and separates generated files', {skip: needsPosix}, async t => {
   const vendor = path.join(tempDir(t), 'vendor');
   writeFiles(vendor, {
     'autoload.php': '<?php\n',
@@ -140,7 +121,7 @@ test('scan reads installed.json in its older array form, and survives a broken o
   assert.deepEqual((await composer.scan(vendor)).packages, []);
 });
 
-test('scan reports files it cannot read', async t => {
+test('scan reports files it cannot read', {skip: !PATH_MAX && 'paths have no length limit here'}, async t => {
   const vendor = path.join(deepTempDir(t), 'vendor');
   writeFiles(vendor, {'acme/deep/composer.json': '{}'});
   unreadableEntry(path.join(vendor, 'acme', 'deep'));

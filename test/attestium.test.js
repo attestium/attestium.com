@@ -6,7 +6,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const Attestium = require('../lib');
 const {signing, Tpm} = require('../lib');
-const {tempDir, writeFiles, hasTpmSimulator, startSwtpm, sleep} = require('./helpers');
+const {
+  tempDir, writeFiles, windows, needsPosix, hasTpmSimulator, startSwtpm, sleep,
+} = require('./helpers');
 
 const quiet = {log() {}};
 
@@ -43,7 +45,7 @@ test('submodules resolve as package subpaths, and docs/ is published', () => {
   assert.ok(require('../package.json').files.includes('docs/'), 'README links to docs/');
 });
 
-test('file names cannot inject code (regression: vm string interpolation)', async t => {
+test('file names cannot inject code (regression: vm string interpolation)', {skip: windows && 'Windows file names cannot hold quotes or line breaks'}, async t => {
   const marker = path.join(tempDir(t), 'pwned');
   const evil = [
     `a",this.constructor.constructor("return process")().mainModule.require("fs").writeFileSync(${JSON.stringify(marker).replaceAll('/', '∕')},"x"),"b.js`,
@@ -125,7 +127,11 @@ test('file selection, categories and .gitignore inheritance', async t => {
     LICENSE: 'MIT',
     'src/app.js': 'x',
   });
-  fs.symlinkSync(root, path.join(root, 'loop'));
+  // A link back to the root is not followed (making one on Windows needs a privilege).
+  if (!windows) {
+    fs.symlinkSync(root, path.join(root, 'loop'));
+  }
+
   const attestium = new Attestium({
     projectRoot: root,
     logger: quiet,
@@ -218,8 +224,9 @@ test('reports, signed baselines and comparisons', async t => {
   assert.equal(await plain.verifyImportedData(plainBaseline), false);
   assert.ok(logs.some(line => /\[WARN] Baseline mismatch: 1 modified, 1 added, 1 removed/.test(line)));
 
-  // Unreadable files are reported, not skipped silently.
-  if (!(process.getuid && process.getuid() === 0)) {
+  // Unreadable files are reported, not skipped silently (root reads every
+  // file, and Windows has no unreadable mode).
+  if (!windows && process.getuid() !== 0) {
     fs.chmodSync(path.join(root, 'src/c.js'), 0);
     const withError = await plain.generateVerificationReport();
     assert.equal(withError.summary.failedFiles, 1);
@@ -361,7 +368,7 @@ test('continuous verification reports changed, added and removed files', async t
   await odd.cleanup();
 });
 
-test('a report with a symbolic link verifies (the verifier digests entry types as the attester does)', async t => {
+test('a report with a symbolic link verifies (the verifier digests entry types as the attester does)', {skip: needsPosix}, async t => {
   const root = project(t);
   fs.symlinkSync('index.js', path.join(root, 'current.js'));
   const report = await new Attestium({projectRoot: root, logger: quiet}).generateVerificationReport();

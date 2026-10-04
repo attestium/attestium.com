@@ -9,6 +9,7 @@ const {execFileSync} = require('node:child_process');
 const asn1 = require('../lib/asn1');
 const sigstore = require('../lib/sigstore');
 const fixture = require('./fixtures/sigstore');
+const {hasOpenssl} = require('./helpers');
 
 const {verifyBundle, SigstoreError} = sigstore;
 const DATA = path.join(__dirname, 'fixtures/sigstore-data');
@@ -38,8 +39,10 @@ function rejects(fn, pattern) {
   });
 }
 
-const authority = fixture.getAuthority();
-const {trustedRoot} = authority;
+// The private Sigstore's certificates and timestamps are made with OpenSSL.
+const authority = hasOpenssl ? fixture.getAuthority() : null;
+const trustedRoot = authority?.trustedRoot;
+const needsOpenssl = !authority && 'OpenSSL is not installed';
 
 /**
  * Replace a bundle's log entry with one the trusted log signs over `body`.
@@ -94,7 +97,7 @@ test('real npm bundles fail when altered', () => {
   const provenance = attestations.find(item => item.predicateType === 'https://slsa.dev/provenance/v1').bundle;
   rejects(() => verifyBundle(provenance, {trustedRoot: realRoot, subject: {algorithm: 'sha512', digest: '00'.repeat(64)}}), /does not name the artifact \(sha512:0{16}\.{3}\)/);
   rejects(() => verifyBundle(provenance, {trustedRoot: realRoot, identity: {sourceRepositoryURI: 'https://github.com/evil/fork'}}), /certificate sourceRepositoryURI is "https:\/\/github.com\/sigstore\/sigstore-js", expected https:\/\/github.com\/evil\/fork/);
-  rejects(() => verifyBundle(provenance, {trustedRoot}), /transparency log is not in the trusted root/);
+  rejects(() => verifyBundle(provenance, {trustedRoot: {...realRoot, tlogs: []}}), /transparency log is not in the trusted root/);
 
   const tampered = clone(provenance);
   const statement = fromB64json(tampered.dsseEnvelope.payload);
@@ -139,7 +142,7 @@ test('a real timestamp from Sigstore\'s timestamp authority', () => {
   const signed = fs.readFileSync(path.join(DATA, 'tsa-signed.bin'));
   assert.strictEqual(new Date(sigstore.verifyTimestamp(response, signed, realRoot)).toISOString(), '2026-09-30T12:23:06.000Z');
   rejects(() => sigstore.verifyTimestamp(response, Buffer.from('other'), realRoot), /for a different signature/);
-  rejects(() => sigstore.verifyTimestamp(response, signed, trustedRoot), /not signed by a trusted timestamp authority/);
+  rejects(() => sigstore.verifyTimestamp(response, signed, {...realRoot, timestampAuthorities: []}), /not signed by a trusted timestamp authority/);
 });
 
 test('loadTrustedRoot reads authorities, logs and validity windows', () => {
@@ -152,7 +155,7 @@ test('loadTrustedRoot reads authorities, logs and validity windows', () => {
   assert.strictEqual(loaded.logs[1].key.asymmetricKeyType, 'ed25519');
   assert.strictEqual(loaded.logs[0].start, Date.parse('2021-01-12T11:53:27Z'));
 
-  const bare = clone(trustedRoot);
+  const bare = clone(realRoot);
   delete bare.certificateAuthorities[0].validFor;
   bare.tlogs[0].publicKey.validFor = {end: '2030-01-01T00:00:00Z'};
   const windows = sigstore.loadTrustedRoot(bare);
@@ -180,9 +183,10 @@ test('rootFromInclusionProof rejects malformed proofs', () => {
 });
 
 test('verifyCheckpoint checks the note signature and its fields', () => {
-  const [ecLog, edLog] = sigstore.loadTrustedRoot(trustedRoot).logs;
+  const logs = [fixture.makeLog('ecdsa', 'https://rekor.test'), fixture.makeLog('ed25519', 'https://log2.rekor.test')];
+  const [ecLog, edLog] = sigstore.loadTrustedRoot(fixture.trustedRootFor({logs})).logs;
   const root = crypto.randomBytes(32);
-  for (const [log, trusted] of [[authority.log, ecLog], [authority.log2, edLog]]) {
+  for (const [log, trusted] of [[logs[0], ecLog], [logs[1], edLog]]) {
     const note = fixture.checkpoint(log, {size: 42, root});
     const parsed = sigstore.verifyCheckpoint(note, trusted);
     assert.strictEqual(parsed.origin, log.origin);
@@ -190,7 +194,7 @@ test('verifyCheckpoint checks the note signature and its fields', () => {
     assert.ok(parsed.root.equals(root));
   }
 
-  const note = fixture.checkpoint(authority.log, {size: 42, root});
+  const note = fixture.checkpoint(logs[0], {size: 42, root});
   assert.throws(() => sigstore.verifyCheckpoint(note, edLog), /does not verify with the log's key/);
   assert.throws(() => sigstore.verifyCheckpoint(note.replace('\n\n', '\n'), ecLog), /malformed checkpoint/);
   assert.throws(() => sigstore.verifyCheckpoint(note.replace('42', '43'), ecLog), /does not verify/);
@@ -198,7 +202,7 @@ test('verifyCheckpoint checks the note signature and its fields', () => {
   const [body] = note.split('\n\n');
   assert.throws(() => sigstore.verifyCheckpoint(`${body}\n\nnot a signature\n— rekor.test AAAA\n`, ecLog), /does not verify/);
   // A signed note, but not a checkpoint.
-  const sign = text => `${text}\n— x ${Buffer.concat([Buffer.alloc(4), crypto.sign('sha256', Buffer.from(text), authority.log.privateKey)]).toString('base64')}\n`;
+  const sign = text => `${text}\n— x ${Buffer.concat([Buffer.alloc(4), crypto.sign('sha256', Buffer.from(text), logs[0].privateKey)]).toString('base64')}\n`;
   assert.throws(() => sigstore.verifyCheckpoint(sign('rekor.test\nmany\nAAAA\n'), ecLog), /malformed checkpoint size/);
   assert.throws(() => sigstore.verifyCheckpoint(sign('rekor.test\n'), ecLog), /malformed checkpoint size/);
   // A log key that cannot verify signatures at all.
@@ -206,7 +210,7 @@ test('verifyCheckpoint checks the note signature and its fields', () => {
   assert.throws(() => sigstore.verifyCheckpoint(note, x25519), /does not verify/);
 });
 
-test('certificateClaims reads Fulcio extensions', () => {
+test('certificateClaims reads Fulcio extensions', {skip: needsOpenssl}, () => {
   const email = fixture.signingCertificate({
     san: 'email:dev@example.com', claims: {
       issuer: null, issuerV1: 'https://accounts.example.com', sourceRepositoryURI: null, sourceRepositoryDigest: null, sourceRepositoryRef: null,
@@ -233,7 +237,7 @@ test('certificateClaims reads Fulcio extensions', () => {
   assert.ok(Object.values(sigstore.FULCIO_OIDS).includes('buildSignerURI'));
 });
 
-test('a GitHub attestation verifies with identity and subject', () => {
+test('a GitHub attestation verifies with identity and subject', {skip: needsOpenssl}, () => {
   const digest = crypto.createHash('sha256').update('artifact').digest('hex');
   const {bundle} = fixture.attest({
     subjects: [{name: 'other', digest: {sha512: 'x'}}, null, {name: 'app', digest: {sha256: digest}}], repository: 'octo/app', commit: 'b'.repeat(40), ref: 'refs/tags/v1.0.0',
@@ -254,7 +258,7 @@ test('a GitHub attestation verifies with identity and subject', () => {
   rejects(() => verifyBundle(bundle, {trustedRoot, subject: {algorithm: 'sha256', digest: '0'.repeat(64)}}), /does not name the artifact/);
 });
 
-test('bundle media types, envelopes and key material', () => {
+test('bundle media types, envelopes and key material', {skip: needsOpenssl}, () => {
   const made = fixture.makeBundle({mediaType: 'application/vnd.dev.sigstore.bundle+json;version=0.1', material: 'chain'});
   assert.strictEqual(verifyBundle(made.bundle, {trustedRoot}).claims.issuer, fixture.GITHUB_ISSUER);
   const v2 = clone(made.bundle);
@@ -284,7 +288,7 @@ test('bundle media types, envelopes and key material', () => {
   rejects(() => verifyBundle(noEntries, {trustedRoot}), /no transparency log entry/);
 });
 
-test('bundles signed with a known public key', () => {
+test('bundles signed with a known public key', {skip: needsOpenssl}, () => {
   for (const curve of ['prime256v1', 'secp384r1', 'secp521r1']) {
     const {bundle, publicKeyPem} = fixture.makeBundle({material: 'publicKey', curve, hint: 'registry-key'});
     const result = verifyBundle(bundle, {trustedRoot, publicKeys: {'registry-key': publicKeyPem}});
@@ -294,7 +298,7 @@ test('bundles signed with a known public key', () => {
   }
 });
 
-test('log entry kinds: dsse, intoto, hashedrekord and Rekor v2 dsse', () => {
+test('log entry kinds: dsse, intoto, hashedrekord and Rekor v2 dsse', {skip: needsOpenssl}, () => {
   const kinds = [
     {kind: 'intoto/0.0.2'},
     {kind: 'intoto/0.0.2', material: 'publicKey'},
@@ -310,7 +314,7 @@ test('log entry kinds: dsse, intoto, hashedrekord and Rekor v2 dsse', () => {
   }
 });
 
-test('signatures over an artifact (cosign sign-blob)', () => {
+test('signatures over an artifact (cosign sign-blob)', {skip: needsOpenssl}, () => {
   const artifact = Buffer.from('SHA256SUMS contents\n');
   const {bundle} = fixture.makeBundle({artifact, certificate: {san: 'email:release@example.com', claims: {issuer: 'https://accounts.example.com'}}});
   const result = verifyBundle(bundle, {trustedRoot, artifact, identity: {subjectAlternativeName: 'release@example.com'}});
@@ -340,7 +344,7 @@ test('signatures over an artifact (cosign sign-blob)', () => {
   rejects(() => verifyBundle(wrongDigest, {trustedRoot, artifact}), /signs a different artifact/);
 });
 
-test('an artifact signature that does not verify', () => {
+test('an artifact signature that does not verify', {skip: needsOpenssl}, () => {
   const artifact = Buffer.from('release notes');
   const made = fixture.makeBundle({artifact});
   // Sign something else, and log that signature for the artifact's hash.
@@ -353,7 +357,7 @@ test('an artifact signature that does not verify', () => {
   rejects(() => verifyBundle(bundle, {trustedRoot, artifact}), /signature over the artifact does not verify/);
 });
 
-test('DSSE envelopes: signature, payload type and statement', () => {
+test('DSSE envelopes: signature, payload type and statement', {skip: needsOpenssl}, () => {
   const made = fixture.makeBundle();
   const tampered = clone(made.bundle);
   tampered.dsseEnvelope.payloadType = 'application/json';
@@ -372,7 +376,7 @@ test('DSSE envelopes: signature, payload type and statement', () => {
   rejects(() => verifyBundle(notJson.bundle, {trustedRoot}), /statement is not JSON/);
 });
 
-test('the log entry must be authentic', () => {
+test('the log entry must be authentic', {skip: needsOpenssl}, () => {
   const {bundle} = fixture.makeBundle({proof: true});
   const entryOf = value => value.verificationMaterial.tlogEntries[0];
 
@@ -417,7 +421,7 @@ test('the log entry must be authentic', () => {
   rejects(() => verifyBundle(neither, {trustedRoot}), /neither a signed entry timestamp nor an inclusion proof/);
 });
 
-test('the log entry must record this signature, key and payload', () => {
+test('the log entry must record this signature, key and payload', {skip: needsOpenssl}, () => {
   const made = fixture.makeBundle();
   const {body} = made;
   const payloadHash = body.spec.payloadHash.value;
@@ -470,7 +474,7 @@ test('the log entry must record this signature, key and payload', () => {
   rejects(() => verifyBundle(withEntry(made.bundle, otherBody, {kind: 'dsse/0.0.2'}), {trustedRoot}), /different signature or signing key/);
 });
 
-test('signing time, certificate validity and the log key\'s validity', () => {
+test('signing time, certificate validity and the log key\'s validity', {skip: needsOpenssl}, () => {
   const now = Math.floor(Date.now() / 1000);
   // Logged after the one-day certificate expired.
   const late = fixture.makeBundle({integratedTime: now + (2 * 86_400)});
@@ -491,7 +495,7 @@ test('signing time, certificate validity and the log key\'s validity', () => {
   rejects(() => verifyBundle(v2.bundle, {trustedRoot}), /no verifiable signing time/);
 });
 
-test('entries without a signed entry timestamp: the log key must be valid at the timestamps', () => {
+test('entries without a signed entry timestamp: the log key must be valid at the timestamps', {skip: needsOpenssl}, () => {
   for (const options of [{rekor: 'v2'}, {promise: false, proof: true, timestamps: 1}]) {
     const {bundle} = fixture.makeBundle(options);
     assert.ok(verifyBundle(bundle, {trustedRoot}));
@@ -506,7 +510,7 @@ test('entries without a signed entry timestamp: the log key must be valid at the
   }
 });
 
-test('the certificate must chain to a trusted authority when signed', () => {
+test('the certificate must chain to a trusted authority when signed', {skip: needsOpenssl}, () => {
   const {bundle} = fixture.makeBundle({timestamps: 1});
   assert.ok(verifyBundle(bundle, {trustedRoot}));
 
@@ -530,7 +534,7 @@ test('the certificate must chain to a trusted authority when signed', () => {
   rejects(() => verifyBundle(bundle, {trustedRoot: later}), /does not chain/);
 });
 
-test('verifyTimestamp: responses, tokens and digests', () => {
+test('verifyTimestamp: responses, tokens and digests', {skip: needsOpenssl}, () => {
   const signature = crypto.randomBytes(64);
   const response = fixture.timestamp(signature);
   const time = sigstore.verifyTimestamp(response, signature, trustedRoot);
@@ -546,7 +550,7 @@ test('verifyTimestamp: responses, tokens and digests', () => {
   rejects(() => sigstore.verifyTimestamp(response, crypto.randomBytes(64), trustedRoot), /for a different signature/);
 });
 
-test('verifyTimestamp rejects what is not a timestamp', () => {
+test('verifyTimestamp rejects what is not a timestamp', {skip: needsOpenssl}, () => {
   const signature = crypto.randomBytes(64);
   // A rejected request: a status and no token.
   const rejection = Buffer.from([0x30, 0x05, 0x30, 0x03, 0x02, 0x01, 0x02]);
@@ -569,7 +573,7 @@ test('verifyTimestamp rejects what is not a timestamp', () => {
   rejects(() => sigstore.verifyTimestamp(tampered, signature, trustedRoot), /signed digest does not match its content/);
 });
 
-test('verifyTimestamp requires a trusted timestamp authority', () => {
+test('verifyTimestamp requires a trusted timestamp authority', {skip: needsOpenssl}, () => {
   // Made before the timestamp, so it is valid at the time it certifies.
   const ed = fixture.makeCertificate(authority.directory, {subject: '/CN=ed25519 tsa', algorithm: 'ed25519', extensions: ['basicConstraints=critical,CA:TRUE']});
   const signature = crypto.randomBytes(64);
@@ -606,7 +610,7 @@ test('verifyTimestamp requires a trusted timestamp authority', () => {
   rejects(() => sigstore.verifyTimestamp(response, signature, edRoot), /not signed by a trusted/);
 });
 
-test('timestamps in bundles bound the certificate\'s validity', () => {
+test('timestamps in bundles bound the certificate\'s validity', {skip: needsOpenssl}, () => {
   const {bundle} = fixture.makeBundle({timestamps: 1});
   const noTsa = clone(trustedRoot);
   noTsa.timestampAuthorities = [];
@@ -617,7 +621,7 @@ test('timestamps in bundles bound the certificate\'s validity', () => {
   rejects(() => verifyBundle(swapped, {trustedRoot}), /timestamp is for a different signature/);
 });
 
-test('an identity requirement must be a string or a RegExp', () => {
+test('an identity requirement must be a string or a RegExp', {skip: needsOpenssl}, () => {
   // A certificate without a source repository claim (an email identity).
   const {bundle} = fixture.makeBundle({certificate: {san: 'email:dev@example.com', claims: {sourceRepositoryURI: null}}});
   assert.ok(verifyBundle(bundle, {trustedRoot, identity: {subjectAlternativeName: 'dev@example.com'}}));
