@@ -57,9 +57,13 @@ jobs:
 
       # c8 enforces 100% statement, branch, function and line coverage of
       # lib/. The tests run as root, as the attester does: some need other
-      # users' files, a chroot, containers or other users' processes.
+      # users' files, a chroot, containers or other users' processes. The
+      # runner's user then takes the coverage files for the upload: Node.js
+      # writes them readable by their owner only.
       - name: Test with coverage
-        run: sudo env "PATH=$PATH" pnpm run coverage
+        run: |
+          sudo env "PATH=$PATH" pnpm run coverage
+          sudo chown -R "$(id -u):$(id -g)" coverage
 
       - name: Upload coverage
         if: matrix.node-version == '22.x'

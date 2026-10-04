@@ -796,7 +796,9 @@ test('specifications RubyGems installed on this machine parse as literals', {ski
     } catch {
       return [];
     }
-  });
+  // A link whose specification is gone is not one (Homebrew's Ruby on
+  // GitHub's macOS runners keeps a link to a replaced bundler).
+  }).filter(file => fs.existsSync(file));
   if (files.length === 0) {
     t.skip('no installed specifications');
     return;
